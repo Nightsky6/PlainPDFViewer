@@ -1,0 +1,338 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{15b75ba4-39c2-431d-b643-fd3e67f94182}</ProjectGuid>
+    <RootNamespace>PlainPDFViewer</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <OutDir>$(SolutionDir)ARM64\Debug\</OutDir>
+    <IntDir>$(SolutionDir)ARM64\Debug\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <OutDir>$(SolutionDir)ARM64\Release\</OutDir>
+    <IntDir>$(SolutionDir)ARM64\Release\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(SolutionDir)Win32\Debug\</OutDir>
+    <IntDir>$(SolutionDir)Win32\Debug\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(SolutionDir)Win32\Release\</OutDir>
+    <IntDir>$(SolutionDir)Win32\Release\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\x86\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(MSBuildProjectDirectory)\third_party\pdfium\x86\bin\pdfium.dll" xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\x86\bin\pdfium.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\x86\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(MSBuildProjectDirectory)\third_party\pdfium\x86\bin\pdfium.dll" xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\x86\bin\pdfium.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\bin\pdfium.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\bin\pdfium.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\arm64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(MSBuildProjectDirectory)\third_party\pdfium\arm64\bin\pdfium.dll" xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\arm64\bin\pdfium.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(MSBuildProjectDirectory)\third_party\pdfium\arm64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(MSBuildProjectDirectory)\third_party\pdfium\arm64\bin\pdfium.dll" xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\arm64\bin\pdfium.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Content Include="$(MSBuildProjectDirectory)\third_party\pdfium\bin\pdfium.dll">
+      <DeploymentContent>true</DeploymentContent>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CleanPopup.h" />
+    <ClInclude Include="CleanPreferences.h" />
+    <ClInclude Include="ConfirmDialog.h" />
+    <ClInclude Include="DocPropertiesDialog.h" />
+    <ClInclude Include="GroupPanel.h" />
+    <ClInclude Include="KeywordDialog.h" />
+    <ClInclude Include="FindBar.h" />
+    <ClInclude Include="framework.h" />
+    <ClInclude Include="GotoDialog.h" />
+    <ClInclude Include="Lang.h" />
+    <ClInclude Include="LicenseDlg.h" />
+    <ClInclude Include="PageManager.h" />
+    <ClInclude Include="PdfCompress.h" />
+    <ClInclude Include="PlainPDFViewer.h" />
+    <ClInclude Include="Preferences.h" />
+    <ClInclude Include="PrintDialog.h" />
+    <ClInclude Include="RecentFiles.h" />
+    <ClInclude Include="Resource.h" />
+    <ClInclude Include="SignaturePad.h" />
+    <ClInclude Include="Strings.h" />
+    <ClInclude Include="Strings_de.h" />
+    <ClInclude Include="Strings_en.h" />
+    <ClInclude Include="Strings_es.h" />
+    <ClInclude Include="Strings_fr.h" />
+    <ClInclude Include="Strings_ja.h" />
+    <ClInclude Include="Strings_ko.h" />
+    <ClInclude Include="Strings_pt.h" />
+    <ClInclude Include="Strings_ru.h" />
+    <ClInclude Include="Strings_zh.h" />
+    <ClInclude Include="targetver.h" />
+    <ClInclude Include="TextViewer.h" />
+    <ClInclude Include="ToastDlg.h" />
+    <ClInclude Include="Toolbar.h" />
+    <ClInclude Include="WindowsOps.h" />
+    <ClInclude Include="WordCloud.h" />
+    <ClInclude Include="WordFreqDialog.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="CleanPopup.cpp" />
+    <ClCompile Include="CleanPreferences.cpp" />
+    <ClCompile Include="ConfirmDialog.cpp" />
+    <ClCompile Include="DocPropertiesDialog.cpp" />
+    <ClCompile Include="GroupPanel.cpp" />
+    <ClCompile Include="KeywordDialog.cpp" />
+    <ClCompile Include="FindBar.cpp" />
+    <ClCompile Include="GotoDialog.cpp" />
+    <ClCompile Include="Lang.cpp" />
+    <ClCompile Include="LicenseDlg.cpp" />
+    <ClCompile Include="PageManager.cpp" />
+    <ClCompile Include="PdfCompress.cpp" />
+    <ClCompile Include="PlainPDFViewer.cpp" />
+    <ClCompile Include="Preferences.cpp" />
+    <ClCompile Include="PrintDialog.cpp" />
+    <ClCompile Include="RecentFiles.cpp" />
+    <ClCompile Include="SignaturePad.cpp" />
+    <ClCompile Include="TextViewer.cpp" />
+    <ClCompile Include="ToastDlg.cpp" />
+    <ClCompile Include="Toolbar.cpp" />
+    <ClCompile Include="WordCloud.cpp" />
+    <ClCompile Include="WordFreqDialog.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="PdfThumbnailProvider\PdfThumbnailProvider.rc" />
+    <ResourceCompile Include="PlainPDFViewer.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="jump.png" />
+    <Image Include="lock.png" />
+    <Image Include="plain.png" />
+    <Image Include="unlock.png" />
+    <Image Include="actual.png" />
+    <Image Include="bookmark.png" />
+    <Image Include="darkmode.png" />
+    <Image Include="file.png" />
+    <Image Include="first.png" />
+    <Image Include="hand.png" />
+    <Image Include="height.png" />
+    <Image Include="highlight.png" />
+    <Image Include="ink.png" />
+    <Image Include="laser.png" />
+    <Image Include="last.png" />
+    <Image Include="loading.gif" />
+    <Image Include="memo.png" />
+    <Image Include="minus.png" />
+    <Image Include="nav_next.png" />
+    <Image Include="nav_prev.png" />
+    <Image Include="next.png" />
+    <Image Include="nextpage.png" />
+    <Image Include="open.png" />
+    <Image Include="PlainPDFViewer.ico" />
+    <Image Include="plus.png" />
+    <Image Include="previous.png" />
+    <Image Include="prevpage.png" />
+    <Image Include="save.png" />
+    <Image Include="scroll.png" />
+    <Image Include="search.png" />
+    <Image Include="slideshow.png" />
+    <Image Include="small.ico" />
+    <Image Include="spotlight.png" />
+    <Image Include="text.png" />
+    <Image Include="trash.png" />
+    <Image Include="width.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="PrintDialogStr.inc" />
+    <None Include="README.md" />
+    <None Include="SyncVersion.ps1" />
+    <None Include="THIRD_PARTY_NOTICES.md" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+  <Target Name="SyncVersionFromManifest" BeforeTargets="PrepareForBuild">
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(ProjectDir)SyncVersion.ps1&quot;" />
+  </Target>
+  <ItemGroup Condition="'$(Platform)'=='x64'"><Content Include="third_party\ghostscript\x64\gsdll64.dll"><Link>gsdll64.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><DeploymentContent>true</DeploymentContent></Content></ItemGroup>
+  <ItemGroup Condition="'$(Platform)'=='Win32'"><Content Include="third_party\ghostscript\x86\gsdll32.dll" Condition="Exists('third_party\ghostscript\x86\gsdll32.dll')"><Link>gsdll32.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><DeploymentContent>true</DeploymentContent></Content></ItemGroup>
+</Project>

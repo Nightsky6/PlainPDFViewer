@@ -1,0 +1,321 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="소스 파일">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="헤더 파일">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="리소스 파일">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="framework.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="targetver.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Resource.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="PlainPDFViewer.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="LicenseDlg.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="ToastDlg.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="CleanPopup.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Preferences.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="RecentFiles.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="TextViewer.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="GotoDialog.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Toolbar.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="FindBar.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="WindowsOps.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="CleanPreferences.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="SignaturePad.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="ConfirmDialog.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="KeywordDialog.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="WordFreqDialog.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="PageManager.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="DocPropertiesDialog.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="GroupPanel.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Lang.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="WordCloud.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_en.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_ja.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_ko.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_zh.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_es.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_de.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_fr.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_pt.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Strings_ru.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="PrintDialog.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="PdfCompress.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="PlainPDFViewer.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="LicenseDlg.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="ToastDlg.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="CleanPopup.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Preferences.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="RecentFiles.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="TextViewer.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="GotoDialog.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Toolbar.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="FindBar.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="CleanPreferences.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="SignaturePad.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="ConfirmDialog.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="KeywordDialog.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="WordFreqDialog.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="PageManager.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="DocPropertiesDialog.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="GroupPanel.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Lang.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="WordCloud.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="PrintDialog.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="PdfCompress.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="PdfThumbnailProvider\PdfThumbnailProvider.rc">
+      <Filter>리소스 파일</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="PlainPDFViewer.rc">
+      <Filter>리소스 파일</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="small.ico">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="PlainPDFViewer.ico">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="plain.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="save.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="nextpage.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="open.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="prevpage.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="next.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="previous.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="hand.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="minus.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="plus.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="width.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="height.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="bookmark.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="scroll.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="text.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="memo.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="slideshow.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="first.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="last.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="search.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="actual.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="file.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="darkmode.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="jump.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="highlight.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="lock.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="unlock.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="spotlight.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="trash.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="loading.gif">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="laser.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="ink.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="nav_next.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="nav_prev.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="SyncVersion.ps1" />
+    <None Include="PrintDialogStr.inc">
+      <Filter>헤더 파일</Filter>
+    </None>
+    <None Include="README.md" />
+    <None Include="THIRD_PARTY_NOTICES.md" />
+  </ItemGroup>
+</Project>

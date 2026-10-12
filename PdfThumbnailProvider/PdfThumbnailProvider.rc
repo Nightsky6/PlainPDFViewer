@@ -1,0 +1,4 @@
+// PdfThumbnailProvider.rc
+// file.png를 RT_RCDATA 리소스로 포함
+
+FILE_ICON_PNG RCDATA "..\file.png"

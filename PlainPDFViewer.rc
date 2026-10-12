@@ -1,0 +1,379 @@
+﻿//Microsoft Visual C++에서 생성한 리소스 스크립트입니다.
+//
+#pragma code_page(65001)
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE 리소스에서 생성되었습니다.
+//
+#ifndef APSTUDIO_INVOKED
+#include "targetver.h"
+#endif
+#define APSTUDIO_HIDDEN_SYMBOLS
+#include "windows.h"
+#undef APSTUDIO_HIDDEN_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_KOR)
+LANGUAGE 18, 1
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// 아이콘
+//
+
+// 애플리케이션 아이콘이 모든 시스템에서 일관된 상태로 유지되도록
+// 가장 낮은 ID 값을 가진 아이콘이 맨 처음 배치됩니다.
+
+IDI_PLAINPDFVIEWER       ICON         "PlainPDFViewer.ico"
+IDI_SMALL               ICON         "small.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// 메뉴
+//
+
+IDC_PLAINPDFVIEWER MENU
+BEGIN
+POPUP "파일(&F)"
+BEGIN
+MENUITEM "열기(&O)...\tCtrl+O", IDM_FILE_OPEN
+MENUITEM SEPARATOR
+MENUITEM "저장(&S)\tCtrl+S", IDM_SAVE
+MENUITEM "다른 이름으로 저장...\tCtrl+Shift+S", IDM_SAVE_AS
+MENUITEM SEPARATOR
+MENUITEM "새 탭(&T)\tCtrl+T", IDM_NEW_TAB
+MENUITEM "탭 닫기\tCtrl+F4", IDM_CLOSE_TAB
+MENUITEM SEPARATOR
+MENUITEM "인쇄(&P)...\tCtrl+P", IDM_PRINT
+MENUITEM "PDF 압축(&C)...", IDM_COMPRESS
+MENUITEM SEPARATOR
+MENUITEM "속성(&I)...", IDM_PROPERTIES
+MENUITEM SEPARATOR
+MENUITEM "끝내기(&X)", IDM_EXIT
+END
+POPUP "보기(&V)"
+BEGIN
+MENUITEM "이전 페이지(&P)\tPgUp", IDM_PREV_PAGE
+MENUITEM "다음 페이지(&N)\tPgDn", IDM_NEXT_PAGE
+MENUITEM SEPARATOR
+MENUITEM "확대(&I)\tCtrl+=", IDM_ZOOM_IN
+MENUITEM "축소(&O)\tCtrl+-", IDM_ZOOM_OUT
+MENUITEM "100%(&R)\tCtrl+0", IDM_ZOOM_RESET
+MENUITEM "너비 맞춤(&W)\tCtrl+W", IDM_FIT_WIDTH
+MENUITEM SEPARATOR
+MENUITEM "찾기(&F)...\tCtrl+F", IDM_FIND
+MENUITEM SEPARATOR
+MENUITEM "목차(&B)\tB", IDM_TOGGLE_SIDEBAR
+MENUITEM SEPARATOR
+MENUITEM "시계 방향 회전\tR", IDM_ROTATE_CW
+MENUITEM "반시계 방향 회전\tShift+R", IDM_ROTATE_CCW
+MENUITEM SEPARATOR
+MENUITEM "야간 모드(&D)\tD", IDM_DARK_MODE
+MENUITEM SEPARATOR
+MENUITEM "두쪽 보기(&2)\tCtrl+2", IDM_TWO_PAGE
+MENUITEM SEPARATOR
+MENUITEM "툴바 숨기기(&T)", IDM_TOGGLE_TOOLBAR
+END
+POPUP "편집(&E)"
+BEGIN
+MENUITEM "모든 주석 삭제(&D)", IDM_DELETE_ALL_ANNOTS
+MENUITEM SEPARATOR
+MENUITEM "키워드 하이라이트(&K)...", IDM_KEYWORD_HIGHLIGHT
+MENUITEM SEPARATOR
+MENUITEM "서명하기(&S)...", IDM_SIGN
+MENUITEM SEPARATOR
+MENUITEM "영역 삭제(&R)...", IDM_REDACT
+MENUITEM SEPARATOR
+MENUITEM "사각형 도구(&Q)", IDM_SHAPE_RECT
+MENUITEM "원 도구(&O)", IDM_SHAPE_CIRCLE
+MENUITEM "도형 색상(&C)...", IDM_SHAPE_COLOR
+END
+POPUP "그룹(&G)"
+BEGIN
+MENUITEM "그룹 패널(&G)", IDM_GROUP_PANEL
+MENUITEM "그룹/항목 관리(&M)...", IDM_GROUP_MANAGE
+END
+POPUP "페이지(&P)"
+BEGIN
+MENUITEM "페이지 관리(&M)...", IDM_PAGE_MANAGER
+END
+POPUP "분석(&A)"
+BEGIN
+MENUITEM "단어 빈도 분석(&W)...", IDM_WORD_FREQ
+MENUITEM "워드 클라우드(&C)...", IDM_WORD_CLOUD
+END
+POPUP "설정(&S)"
+BEGIN
+MENUITEM "환경 설정(&P)...", IDM_PREFERENCES
+MENUITEM "기본 PDF 뷰어 설정(&D)...", IDM_SET_DEFAULT_PDF
+END
+POPUP "도움말(&H)"
+BEGIN
+MENUITEM "라이센스(&L)...", IDM_LICENSE
+MENUITEM SEPARATOR
+MENUITEM "정보(&A)...", IDM_ABOUT
+END
+POPUP "Language"
+BEGIN
+MENUITEM "Korean\t한국어", IDM_LANG_0
+MENUITEM "English", IDM_LANG_1
+MENUITEM "Japanese\t日本語", IDM_LANG_2
+MENUITEM "Chinese\t中文", IDM_LANG_3
+MENUITEM "Spanish\tEspañol", IDM_LANG_4
+MENUITEM "French\tFrançais", IDM_LANG_5
+MENUITEM "German\tDeutsch", IDM_LANG_6
+MENUITEM "Portuguese\tPortuguês", IDM_LANG_7
+MENUITEM "Russian\tРусский", IDM_LANG_8
+END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// 액셀러레이터 키
+//
+
+IDC_PLAINPDFVIEWER ACCELERATORS
+BEGIN
+"?", IDM_ABOUT, ASCII, ALT
+"/", IDM_ABOUT, ASCII, ALT
+"O", IDM_FILE_OPEN, VIRTKEY, CONTROL, NOINVERT
+"S", IDM_SAVE, VIRTKEY, CONTROL, NOINVERT
+"S", IDM_SAVE_AS, VIRTKEY, CONTROL, SHIFT, NOINVERT
+"P", IDM_PRINT, VIRTKEY, CONTROL, NOINVERT
+VK_PRIOR, IDM_PREV_PAGE, VIRTKEY, NOINVERT
+VK_NEXT, IDM_NEXT_PAGE, VIRTKEY, NOINVERT
+VK_OEM_PLUS, IDM_ZOOM_IN, VIRTKEY, CONTROL, NOINVERT
+VK_OEM_MINUS, IDM_ZOOM_OUT, VIRTKEY, CONTROL, NOINVERT
+"0", IDM_ZOOM_RESET, VIRTKEY, CONTROL, NOINVERT
+"W", IDM_FIT_WIDTH, VIRTKEY, CONTROL, NOINVERT
+"2", IDM_TWO_PAGE, VIRTKEY, CONTROL, NOINVERT
+"F", IDM_FIND, VIRTKEY, CONTROL, NOINVERT
+VK_F3, IDM_FIND_NEXT, VIRTKEY, NOINVERT
+VK_F3, IDM_FIND_PREV, VIRTKEY, SHIFT, NOINVERT
+VK_RETURN, IDM_FIND_NEXT, VIRTKEY, NOINVERT
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// 대화 상자
+//
+
+IDD_ABOUTBOX DIALOGEX 0, 0, 170, 62
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "정보 PlainPDFViewer"
+FONT 9, "MS Shell Dlg"
+BEGIN
+CONTROL         "", IDC_ABOUT_ICON, "Static", SS_OWNERDRAW, 14, 14, 21, 20
+LTEXT           "PlainPDFViewer, 버전 1.0", IDC_STATIC, 42, 14, 114, 8, SS_NOPREFIX
+LTEXT           "Copyright (C) 2026", IDC_STATIC, 42, 26, 114, 8
+DEFPUSHBUTTON   "확인", IDOK, 113, 41, 50, 14, WS_GROUP
+END
+
+IDB_PLAIN_PNG  RCDATA  "plain.png"
+IDB_SAVE_PNG   RCDATA  "save.png"
+IDB_OPEN_PNG   RCDATA  "open.png"
+IDB_PRINTER_PNG RCDATA "printer.png"
+IDB_PREVPAGE_PNG RCDATA "prevpage.png"
+IDB_NEXTPAGE_PNG RCDATA "nextpage.png"
+IDB_FINDPREV_PNG RCDATA "previous.png"
+IDB_FINDNEXT_PNG RCDATA "next.png"
+IDB_HAND_PNG   RCDATA  "hand.png"
+IDB_MINUS_PNG  RCDATA  "minus.png"
+IDB_PLUS_PNG   RCDATA  "plus.png"
+IDB_WIDTH_PNG  RCDATA  "width.png"
+IDB_HEIGHT_PNG RCDATA  "height.png"
+IDB_BOOKMARK_PNG RCDATA "bookmark.png"
+IDB_SCROLL_PNG RCDATA  "scroll.png"
+IDB_TEXT_PNG   RCDATA  "text.png"
+IDB_MEMO_PNG   RCDATA  "memo.png"
+IDB_SLIDESHOW_PNG RCDATA "slideshow.png"
+IDB_FIRSTPAGE_PNG RCDATA "first.png"
+IDB_LASTPAGE_PNG  RCDATA "last.png"
+IDB_SEARCH_PNG    RCDATA "search.png"
+IDB_ACTUAL_PNG    RCDATA "actual.png"
+IDB_FILE_PNG      RCDATA "file.png"
+IDB_HIGHLIGHT_PNG RCDATA "highlight.png"
+IDB_DARKMODE_PNG  RCDATA "darkmode.png"
+IDB_JUMP_PNG      RCDATA "jump.png"
+IDB_LOCK_PNG      RCDATA "lock.png"
+IDB_UNLOCK_PNG    RCDATA "unlock.png"
+IDB_SPOTLIGHT_PNG RCDATA "spotlight.png"
+IDB_TRASH_PNG     RCDATA "trash.png"
+IDB_LOADING_GIF   RCDATA "loading.gif"
+IDB_LASER_PNG     RCDATA "laser.png"
+IDB_GOTO_PNG      RCDATA "goto.png"
+IDB_THUMBNAIL_PNG RCDATA "thumbnail.png"
+IDB_INK_PNG       RCDATA "ink.png"
+IDB_NAV_PREV_PNG  RCDATA "nav_prev.png"
+IDB_NAV_NEXT_PNG  RCDATA "nav_next.png"
+
+IDD_PREFERENCES DIALOGEX 0, 0, 320, 270
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VSCROLL
+CAPTION "환경 설정"
+FONT 9, "맑은 고딕"
+BEGIN
+// ── 표시 섹션 헤더 ──
+LTEXT         "표시", IDC_PREF_SEC_DISPLAY, 12, 10, 296, 11
+
+// 텍스트 선택 색상
+LTEXT         "텍스트 선택 색상", IDC_STATIC, 24, 28, 110, 10
+PUSHBUTTON    "", IDC_PREF_SEL_COLOR, 148, 25, 88, 15, BS_OWNERDRAW
+
+// ── 자동 스크롤 섹션 헤더 ──
+LTEXT         "자동 스크롤", IDC_PREF_SEC_SCROLL, 12, 52, 296, 11
+
+// 스크롤 속도
+LTEXT         "스크롤 속도", IDC_STATIC, 24, 70, 70, 10
+CONTROL       "", IDC_PREF_SCROLL_SPEED, "msctls_trackbar32",
+TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP, 100, 67, 150, 18
+LTEXT         "느림", IDC_STATIC, 96, 86, 22, 9
+LTEXT         "빠름", IDC_STATIC, 234, 86, 22, 9
+RTEXT         "", IDC_PREF_SPEED_LABEL, 258, 70, 44, 10
+
+// ── 파일 섹션 헤더 ──
+LTEXT         "파일", IDC_PREF_SEC_FILE, 12, 110, 296, 11
+
+// 최근 파일 개수
+LTEXT         "최근 파일 목록 개수", IDC_STATIC, 24, 128, 114, 10
+EDITTEXT      IDC_PREF_RECENT_COUNT, 148, 125, 32, 14, ES_NUMBER | WS_TABSTOP
+CONTROL       "", IDC_PREF_RECENT_SPIN, "msctls_updown32",
+UDS_ALIGNRIGHT | UDS_SETBUDDYINT | UDS_ARROWKEYS | WS_TABSTOP,
+178, 125, 12, 14
+LTEXT         "(1 ~ 10)", IDC_STATIC, 196, 128, 40, 10
+
+// ── 언어 섹션 헤더 ──
+LTEXT         "언어", IDC_PREF_SEC_LANG, 12, 152, 296, 11
+
+LTEXT         "표시 언어", IDC_STATIC, 24, 170, 110, 10
+COMBOBOX      IDC_PREF_LANG_COMBO, 148, 167, 88, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+// ── 확인 / 취소 ──
+DEFPUSHBUTTON "확인", IDOK, 194, 244, 56, 16
+PUSHBUTTON    "취소", IDCANCEL, 256, 244, 56, 16
+END
+
+IDD_LICENSEBOX DIALOGEX 0, 0, 420, 310
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "오픈소스 라이센스"
+FONT 9, "Segoe UI"
+BEGIN
+EDITTEXT      IDC_LICENSE_TEXT, 10, 48, 400, 226,
+ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL
+PUSHBUTTON    "닫기", IDOK, 165, 282, 90, 18, WS_GROUP | BS_OWNERDRAW
+END
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+IDD_ABOUTBOX, DIALOG
+BEGIN
+LEFTMARGIN, 7
+RIGHTMARGIN, 163
+TOPMARGIN, 7
+BOTTOMMARGIN, 55
+END
+END
+#endif    // APSTUDIO_INVOKED
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+1 TEXTINCLUDE
+BEGIN
+"resource.h\0"
+END
+
+2 TEXTINCLUDE
+BEGIN
+"#ifndef APSTUDIO_INVOKED\r\n"
+"#include ""targetver.h""\r\n"
+"#endif\r\n"
+"#define APSTUDIO_HIDDEN_SYMBOLS\r\n"
+"#include ""windows.h""\r\n"
+"#undef APSTUDIO_HIDDEN_SYMBOLS\r\n"
+"\0"
+END
+
+3 TEXTINCLUDE
+BEGIN
+"\r\n"
+"\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// 문자열 테이블
+//
+
+STRINGTABLE
+BEGIN
+IDC_PLAINPDFVIEWER   "PLAINPDFVIEWER"
+IDS_APP_TITLE       "PlainPDFViewer"
+END
+
+#endif
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE 리소스에서 생성되었습니다.
+//
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 0,3,9,0
+PRODUCTVERSION 0,3,9,0
+FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+FILEFLAGS 0x1L
+#else
+FILEFLAGS 0x0L
+#endif
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+BLOCK "StringFileInfo"
+BEGIN
+BLOCK "041204B0"
+BEGIN
+VALUE "CompanyName", "Nightsky Works"
+VALUE "FileDescription", "Plain PDF Viewer"
+VALUE "FileVersion", "0.3.9.0"
+VALUE "InternalName", "PlainPDFViewer"
+VALUE "LegalCopyright", "\x00A9 2026 Nightsky Works."
+VALUE "OriginalFilename", "PlainPDFViewer.exe"
+VALUE "ProductName", "Plain PDF Viewer"
+VALUE "ProductVersion", "0.3.9.0"
+END
+END
+BLOCK "VarFileInfo"
+BEGIN
+VALUE "Translation", 0x0412, 1200
+END
+END
