@@ -284,6 +284,7 @@
     <ResourceCompile Include="PlainPDFViewer.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="compress.png" />
     <Image Include="jump.png" />
     <Image Include="lock.png" />
     <Image Include="plain.png" />

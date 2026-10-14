@@ -147,6 +147,7 @@
 #define STR_TIP_BTN_EXTRACT_ZH      L"提取文本（T）"
 #define STR_TIP_BTN_SLIDESHOW_ZH    L"幻灯片放映（F5）"
 #define STR_TIP_BTN_GOTO_ZH         L"跳转到页面（Ctrl+G）"
+#define STR_TIP_BTN_COMPRESS_ZH L"压缩 PDF"
 #define STR_STATUS_READY_ZH         L"  就绪"
 #define STR_PM_BTN_PREV_ZH          L"◀ 上移"
 #define STR_PM_BTN_NEXT_ZH          L"下移 ▶"

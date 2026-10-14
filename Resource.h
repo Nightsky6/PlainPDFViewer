@@ -91,6 +91,7 @@
 #define IDB_INK_PNG              1037
 #define IDB_NAV_PREV_PNG         1038
 #define IDB_NAV_NEXT_PNG         1039
+#define IDB_COMPRESS_PNG         1040
 
 #define IDM_INK_MODE             32842
 #define IDM_INK_COLOR            32843

@@ -135,6 +135,8 @@ const ToolbarButton g_toolbarButtons[] = {
     { nullptr, nullptr, IDM_SLIDESHOW,        true,  IDB_SLIDESHOW_PNG, 0,  0  },
     { L"|",    nullptr, 0,                    false, 0,                 0,  0  },
     { nullptr, nullptr, IDM_GOTO_PAGE,        true,  IDB_JUMP_PNG,      0,  0  },
+    { L"|",    nullptr, 0,                    false, 0,                 0,  0  },
+    { nullptr, nullptr, IDM_COMPRESS,         true,  IDB_COMPRESS_PNG,  0,  0  },
 };
 const int g_toolbarButtonCount = _countof(g_toolbarButtons);
 
@@ -161,6 +163,7 @@ const wchar_t* GetToolbarTooltip(int index)
     case 24: return LS(STR_TIP_BTN_EXTRACT);
     case 26: return LS(STR_TIP_BTN_SLIDESHOW);
     case 28: return LS(STR_TIP_BTN_GOTO);
+    case 30: return LS(STR_TIP_BTN_COMPRESS);
     default: return (index >= 0 && index < g_toolbarButtonCount) ? g_toolbarButtons[index].tooltip : nullptr;
     }
 }

@@ -147,6 +147,7 @@
 #define STR_TIP_BTN_EXTRACT_ES      L"Extraer texto (T)"
 #define STR_TIP_BTN_SLIDESHOW_ES    L"Presentación (F5)"
 #define STR_TIP_BTN_GOTO_ES         L"Ir a página (Ctrl+G)"
+#define STR_TIP_BTN_COMPRESS_ES L"Comprimir PDF"
 #define STR_STATUS_READY_ES         L"  Listo"
 #define STR_PM_BTN_PREV_ES          L"◀ Subir"
 #define STR_PM_BTN_NEXT_ES          L"Bajar ▶"

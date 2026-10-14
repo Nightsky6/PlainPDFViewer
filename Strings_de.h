@@ -147,6 +147,7 @@
 #define STR_TIP_BTN_EXTRACT_DE      L"Text extrahieren (T)"
 #define STR_TIP_BTN_SLIDESHOW_DE    L"Diashow (F5)"
 #define STR_TIP_BTN_GOTO_DE         L"Zur Seite wechseln (Ctrl+G)"
+#define STR_TIP_BTN_COMPRESS_DE L"PDF komprimieren"
 #define STR_STATUS_READY_DE         L"  Bereit"
 #define STR_PM_BTN_PREV_DE          L"◀ Nach oben"
 #define STR_PM_BTN_NEXT_DE          L"Nach unten ▶"

@@ -147,6 +147,7 @@
 #define STR_TIP_BTN_EXTRACT_JA      L"テキスト抽出 (T)"
 #define STR_TIP_BTN_SLIDESHOW_JA    L"スライドショー (F5)"
 #define STR_TIP_BTN_GOTO_JA         L"ページへ移動 (Ctrl+G)"
+#define STR_TIP_BTN_COMPRESS_JA L"PDFを圧縮"
 #define STR_STATUS_READY_JA         L"  準備完了"
 #define STR_PM_BTN_PREV_JA          L"◀ 上へ"
 #define STR_PM_BTN_NEXT_JA          L"下へ ▶"

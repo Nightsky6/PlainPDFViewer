@@ -147,6 +147,7 @@
 #define STR_TIP_BTN_EXTRACT_KO      L"텍스트 추출 (T)"
 #define STR_TIP_BTN_SLIDESHOW_KO    L"슬라이드쇼 (F5)"
 #define STR_TIP_BTN_GOTO_KO         L"페이지 이동 (Ctrl+G)"
+#define STR_TIP_BTN_COMPRESS_KO L"PDF 압축"
 #define STR_STATUS_READY_KO         L"  준비"
 #define STR_PM_BTN_PREV_KO          L"◀ 앞으로"
 #define STR_PM_BTN_NEXT_KO          L"뒤로 ▶"

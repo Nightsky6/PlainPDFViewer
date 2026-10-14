@@ -212,6 +212,7 @@ IDB_THUMBNAIL_PNG RCDATA "thumbnail.png"
 IDB_INK_PNG       RCDATA "ink.png"
 IDB_NAV_PREV_PNG  RCDATA "nav_prev.png"
 IDB_NAV_NEXT_PNG  RCDATA "nav_next.png"
+IDB_COMPRESS_PNG  RCDATA "compress.png"
 
 IDD_PREFERENCES DIALOGEX 0, 0, 320, 270
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VSCROLL
@@ -346,8 +347,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 0,3,9,0
-PRODUCTVERSION 0,3,9,0
+FILEVERSION 0,4,0,0
+PRODUCTVERSION 0,4,0,0
 FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
 FILEFLAGS 0x1L
@@ -364,12 +365,12 @@ BLOCK "041204B0"
 BEGIN
 VALUE "CompanyName", "Nightsky Works"
 VALUE "FileDescription", "Plain PDF Viewer"
-VALUE "FileVersion", "0.3.9.0"
+VALUE "FileVersion", "0.4.0.0"
 VALUE "InternalName", "PlainPDFViewer"
 VALUE "LegalCopyright", "\x00A9 2026 Nightsky Works."
 VALUE "OriginalFilename", "PlainPDFViewer.exe"
 VALUE "ProductName", "Plain PDF Viewer"
-VALUE "ProductVersion", "0.3.9.0"
+VALUE "ProductVersion", "0.4.0.0"
 END
 END
 BLOCK "VarFileInfo"

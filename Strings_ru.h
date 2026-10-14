@@ -147,6 +147,7 @@
 #define STR_TIP_BTN_EXTRACT_RU      L"Извлечь текст (T)"
 #define STR_TIP_BTN_SLIDESHOW_RU    L"Слайд-шоу (F5)"
 #define STR_TIP_BTN_GOTO_RU         L"Перейти на страницу (Ctrl+G)"
+#define STR_TIP_BTN_COMPRESS_RU L"Сжать PDF"
 #define STR_STATUS_READY_RU         L"  Готово"
 #define STR_PM_BTN_PREV_RU          L"◀ Вверх"
 #define STR_PM_BTN_NEXT_RU          L"Вниз ▶"
