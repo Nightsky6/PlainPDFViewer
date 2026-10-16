@@ -148,8 +148,8 @@ void ScrollToFindResult(HWND hWnd)
     const int vpH = vp.bottom - vp.top;
 
     int sx1, sy1, sx2, sy2;
-    PdfToScreen(rLeft, rTop, pageW, pageH, 0, 0, g_zoom, g_rotation, &sx1, &sy1);
-    PdfToScreen(rRight, rBottom, pageW, pageH, 0, 0, g_zoom, g_rotation, &sx2, &sy2);
+    PdfToScreen(rLeft, rTop, pageW, pageH, 0, 0, g_zoom, GetEffectiveRotation(g_currentPage), &sx1, &sy1);
+    PdfToScreen(rRight, rBottom, pageW, pageH, 0, 0, g_zoom, GetEffectiveRotation(g_currentPage), &sx2, &sy2);
     if (sx1 > sx2) std::swap(sx1, sx2);
     if (sy1 > sy2) std::swap(sy1, sy2);
 
@@ -745,8 +745,8 @@ void DrawFindHighlight(HDC hdc, const RECT& clientRect)
         FPDFText_GetRect(g_textPage, ri, &rLeft, &rTop, &rRight, &rBottom);
 
         int sx1, sy1, sx2, sy2;
-        PdfToScreen(rLeft, rTop, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx1, &sy1);
-        PdfToScreen(rRight, rBottom, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx2, &sy2);
+        PdfToScreen(rLeft, rTop, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(g_currentPage), &sx1, &sy1);
+        PdfToScreen(rRight, rBottom, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(g_currentPage), &sx2, &sy2);
         if (sx1 > sx2) std::swap(sx1, sx2);
         if (sy1 > sy2) std::swap(sy1, sy2);
 

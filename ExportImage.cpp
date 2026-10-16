@@ -387,14 +387,15 @@ namespace
 	}
 }
 
-void ExportPagesAsImages(HWND parent)
+void ExportPagesAsImages(HWND parent, int initialPage)
 {
 	if (!g_pdfDoc || g_pageCount <= 0) return;
 
 	DlgState st;
 	st.pageCount = g_pageCount;
-	st.from = 1;
-	st.to = g_pageCount;
+	const bool single = (initialPage >= 1 && initialPage <= g_pageCount);
+	st.from = single ? initialPage : 1;
+	st.to = single ? initialPage : g_pageCount;
 	if (!RunDialog(parent, st)) return;
 	const int dpi = kDpis[st.dpiIdx];
 
@@ -447,7 +448,8 @@ void ExportPagesAsImages(HWND parent)
 		if (!page) continue;
 
 		double pw = FPDF_GetPageWidth(page), ph = FPDF_GetPageHeight(page);
-		if (g_rotation == 1 || g_rotation == 3) std::swap(pw, ph);
+		const int rot = GetEffectiveRotation(i);
+		if (rot == 1 || rot == 3) std::swap(pw, ph);
 		double wpx = pw * dpi / 72.0, hpx = ph * dpi / 72.0;
 		const double kMax = 16000.0;
 		double k = std::min(1.0, kMax / std::max(wpx, hpx));
@@ -458,7 +460,7 @@ void ExportPagesAsImages(HWND parent)
 		if (bmp)
 		{
 			FPDFBitmap_FillRect(bmp, 0, 0, W, H, 0xFFFFFFFF);
-			FPDF_RenderPageBitmap(bmp, page, 0, 0, W, H, g_rotation, FPDF_ANNOT | FPDF_LCD_TEXT);
+			FPDF_RenderPageBitmap(bmp, page, 0, 0, W, H, rot, FPDF_ANNOT | FPDF_LCD_TEXT);
 
 			Gdiplus::Bitmap gb(W, H, FPDFBitmap_GetStride(bmp), PixelFormat32bppRGB,
 							   reinterpret_cast<BYTE*>(FPDFBitmap_GetBuffer(bmp)));

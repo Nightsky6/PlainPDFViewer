@@ -181,6 +181,14 @@ int           g_scrollY = 0;
 std::wstring         g_filePath;
 
 // ─── 텍스트 하이라이트 ────────────────────────────────────────────────────────
+// 페이지별 추가 회전(0~3). 전체 회전(g_rotation)에 더해져 적용된다.
+static std::vector<int> g_pageRot;
+int GetEffectiveRotation(int pageIndex)
+{
+    int r = (pageIndex >= 0 && pageIndex < (int)g_pageRot.size()) ? g_pageRot[pageIndex] : 0;
+    return (g_rotation + r) % 4;
+}
+
 std::vector<HighlightItem> g_highlights;
 static int g_selectedHighlight = -1;  // 선택된 하이라이트 인덱스 (-1 = 없음)
 
@@ -450,9 +458,10 @@ struct RenderResult {
     float             zoom;
     std::vector<BYTE> pixels;
     std::shared_ptr<std::vector<char>> pdfBuf;
+    int               rotation = 0;
 };
 
-// ─── 워커 전역 상태 ───────────────────────────────────────────────────────
+// ─── 워커 전역 상태
 static std::deque<RenderRequest> g_renderQueue;
 static std::mutex                g_renderMtx;
 std::mutex                       g_pdfiumMtx;
@@ -591,7 +600,7 @@ static void RenderWorkerProc()
         if (pixels.empty()) continue;
 
         RenderResult* res = new RenderResult{
-            req.pageIndex, req.renderW, req.renderH, req.zoom, std::move(pixels), req.pdfBuf };
+            req.pageIndex, req.renderW, req.renderH, req.zoom, std::move(pixels), req.pdfBuf, req.rotation };
         PostMessageW(req.hWnd, WM_RENDER_DONE, 0, (LPARAM)res);
     }
     {
@@ -674,7 +683,7 @@ static void EnsureQuickPreview(int pageIndex, int fullW, int fullH)
     if (fpdfBmp)
     {
         FPDFBitmap_FillRect(fpdfBmp, 0, 0, prevW, prevH, 0xFFFFFFFF);
-        FPDF_RenderPageBitmap(fpdfBmp, page, 0, 0, prevW, prevH, g_rotation, FPDF_ANNOT);
+        FPDF_RenderPageBitmap(fpdfBmp, page, 0, 0, prevW, prevH, GetEffectiveRotation(pageIndex), FPDF_ANNOT);
 
         BITMAPINFO bmi = {};
         bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
@@ -920,6 +929,7 @@ struct TabState {
     int           pageCount = 0;
     float         zoom = 1.0f;
     int           rotation = 0;
+    std::vector<int> pageRot;
     bool          darkMode = false;
     int           scrollX = 0;
     int           scrollY = 0;
@@ -1026,7 +1036,7 @@ static void PostPrefetch(HWND hWnd, int pageIndex)
         g_pageLayouts[pageIndex].renderW,
         g_pageLayouts[pageIndex].renderH,
         g_zoom,
-        g_rotation,
+        GetEffectiveRotation(pageIndex),
         hWnd,
         buf
     };
@@ -1096,6 +1106,7 @@ static void SaveTabState(TabState& ts)
     ts.pageCount = g_pageCount;
     ts.zoom = g_zoom;
     ts.rotation = g_rotation;
+    ts.pageRot = g_pageRot;
     ts.darkMode = g_darkMode;
     ts.scrollX = g_scrollX;
     ts.scrollY = g_scrollY;
@@ -1158,6 +1169,7 @@ static void RestoreTabState(TabState& ts)
     g_pageCount = ts.pageCount;
     g_zoom = ts.zoom;
     g_rotation = ts.rotation;
+    g_pageRot = ts.pageRot;
     g_darkMode = ts.darkMode;
     g_scrollX = ts.scrollX;
     g_scrollY = ts.scrollY;
@@ -1220,6 +1232,7 @@ static void ClearGlobalsWithoutClose()
     g_pageCount = 0;
     g_zoom = 1.0f;
     g_rotation = 0;
+    g_pageRot.clear();
     g_darkMode = false;
     g_scrollX = 0;
     g_scrollY = 0;
@@ -1404,7 +1417,7 @@ static void FormDeviceToPage(int pgX, int pgY, int renderW, int renderH,
 {
     if (g_pdfPage)
         FPDF_DeviceToPage(g_pdfPage, 0, 0, renderW, renderH,
-                          g_rotation, pgX, pgY, outPdfX, outPdfY);
+                          GetEffectiveRotation(g_currentPage), pgX, pgY, outPdfX, outPdfY);
     else
     { *outPdfX = pgX; *outPdfY = pgY; }
 }
@@ -2266,6 +2279,7 @@ void ClosePDF()
     g_scrollY = 0;
     g_zoom = 1.0f;
     g_rotation = 0;
+    g_pageRot.clear();
     g_darkMode = false;
     g_autoScrolling = false;
     g_filePath.clear();
@@ -2974,7 +2988,9 @@ void RecalcPageLayouts()
         int y = 0;
         for (int i = 0; i < g_pageCount; i += 2)
         {
-            bool swapped = (g_rotation == 1 || g_rotation == 3);
+            const int er0 = GetEffectiveRotation(i);
+            const int er1 = GetEffectiveRotation(i + 1);
+            bool swapped = (er0 == 1 || er0 == 3);
 
             double w0, h0;
             FPDF_GetPageSizeByIndex(g_pdfDoc, i, &w0, &h0);
@@ -2994,8 +3010,9 @@ void RecalcPageLayouts()
                 FPDF_GetPageSizeByIndex(g_pdfDoc, i + 1, &w1, &h1);
                 g_pageLayouts[i+1].pdfW = w1;
                 g_pageLayouts[i+1].pdfH = h1;
-                double dispW1 = swapped ? h1 : w1;
-                double dispH1 = swapped ? w1 : h1;
+                const bool swapped1 = (er1 == 1 || er1 == 3);
+                double dispW1 = swapped1 ? h1 : w1;
+                double dispH1 = swapped1 ? w1 : h1;
                 g_pageLayouts[i+1].renderW = (int)(dispW1 * g_zoom);
                 g_pageLayouts[i+1].renderH = (int)(dispH1 * g_zoom);
                 rowH = std::max(rowH, g_pageLayouts[i+1].renderH);
@@ -3021,7 +3038,8 @@ void RecalcPageLayouts()
             FPDF_GetPageSizeByIndex(g_pdfDoc, i, &w, &h);
             g_pageLayouts[i].pdfW = w;
             g_pageLayouts[i].pdfH = h;
-            bool swapped = (g_rotation == 1 || g_rotation == 3);
+            const int erI = GetEffectiveRotation(i);
+            bool swapped = (erI == 1 || erI == 3);
             double dispW = swapped ? h : w;
             double dispH = swapped ? w : h;
             g_pageLayouts[i].renderW = (int)(dispW * g_zoom);
@@ -3033,6 +3051,70 @@ void RecalcPageLayouts()
         }
         g_totalDocHeight = y - PAGE_GAP;
     }
+}
+
+static void RotateAllKeepPosition(HWND hWnd, int delta)
+{
+    int anchor = 0; double frac = 0.0;
+    if (!g_pageLayouts.empty())
+    {
+        for (int i = 0; i < (int)g_pageLayouts.size(); ++i)
+        {
+            if (g_pageLayouts[i].yOffset <= g_scrollY) anchor = i; else break;
+        }
+        if (g_pageLayouts[anchor].renderH > 0)
+            frac = (double)(g_scrollY - g_pageLayouts[anchor].yOffset) / g_pageLayouts[anchor].renderH;
+    }
+    g_rotation = (g_rotation + delta) % 4;
+    ClearPageCache();
+    ClearPreviewCache();
+    g_pageCache.resize(g_pageCount);
+    g_prefetchPending.assign(g_pageCount, false);
+    ClearThumbCache();
+    InitThumbCache(g_pageCount);
+    RecalcPageLayouts();
+    if (anchor < (int)g_pageLayouts.size())
+        g_scrollY = g_pageLayouts[anchor].yOffset + (int)(frac * g_pageLayouts[anchor].renderH);
+    for (auto& h : g_highlights)  h.cachedRects.clear();
+    for (auto& u : g_underlines)  u.cachedRects.clear();
+    for (auto& s : g_strikeouts)  s.cachedRects.clear();
+    for (auto& q : g_squigglies)  q.cachedRects.clear();
+    UpdateScrollBars(hWnd);
+    InvalidateRect(hWnd, nullptr, TRUE);
+}
+
+static void RotateSinglePage(HWND hWnd, int pageIdx, int delta)
+{
+    if (!g_pdfDoc || pageIdx < 0 || pageIdx >= g_pageCount) return;
+    if ((int)g_pageRot.size() != g_pageCount) g_pageRot.resize(g_pageCount, 0);
+    g_pageRot[pageIdx] = (g_pageRot[pageIdx] + delta + 4) % 4;
+
+    FlushRenderQueue();
+    if (pageIdx < (int)g_pageCache.size() && g_pageCache[pageIdx].hBmp)
+    {
+        DeleteObject(g_pageCache[pageIdx].hBmp);
+        g_pageCache[pageIdx] = PageCacheEntry{};
+    }
+    if (pageIdx < (int)g_previewCache.size() && g_previewCache[pageIdx].hBmp)
+    {
+        DeleteObject(g_previewCache[pageIdx].hBmp);
+        g_previewCache[pageIdx] = PreviewEntry{};
+    }
+    if (pageIdx < (int)g_thumbCache.size() && g_thumbCache[pageIdx].hBmp)
+    {
+        DeleteObject(g_thumbCache[pageIdx].hBmp);
+        g_thumbCache[pageIdx] = ThumbCacheEntry{};
+    }
+    g_pageBaseDirty = true;
+    RecalcPageLayouts();
+    for (auto& h : g_highlights)  h.cachedRects.clear();
+    for (auto& u : g_underlines)  u.cachedRects.clear();
+    for (auto& s : g_strikeouts)  s.cachedRects.clear();
+    for (auto& q : g_squigglies)  q.cachedRects.clear();
+    g_dirty = true;
+    UpdateScrollBars(hWnd);
+    UpdateTitle(hWnd);
+    InvalidateRect(hWnd, nullptr, TRUE);
 }
 
 void GetPageScreenPos(int pageIndex, const RECT& vp, int* outLeft, int* outTop)
@@ -3132,7 +3214,7 @@ static int HitTestPageAtPoint(int screenX, int screenY, const RECT& vp, double* 
             double pw = g_pageLayouts[i].pdfW;
             double ph = g_pageLayouts[i].pdfH;
             double pdfX = 0, pdfY = 0;
-            switch (g_rotation) {
+            switch (GetEffectiveRotation(i)) {
             case 0: pdfX = sx;       pdfY = ph - sy;  break;
             case 1: pdfX = sy;       pdfY = sx;       break;
             case 2: pdfX = pw - sx;  pdfY = sy;       break;
@@ -3362,9 +3444,9 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
 
                 int sx1, sy1, sx2, sy2;
                 PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx1, &sy1);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx1, &sy1);
                 PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx2, &sy2);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx2, &sy2);
                 if (sx1 > sx2) std::swap(sx1, sx2);
                 if (sy1 > sy2) std::swap(sy1, sy2);
 
@@ -3501,20 +3583,47 @@ static void DrawUnderlines(HDC hdc, const RECT& clientRect)
 
                 int sx1, sy1, sx2, sy2;
                 PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx1, &sy1);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(ul.pageIndex), &sx1, &sy1);
                 PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx2, &sy2);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(ul.pageIndex), &sx2, &sy2);
                 if (sx1 > sx2) std::swap(sx1, sx2);
                 if (sy1 > sy2) std::swap(sy1, sy2);
 
-                int cx1       = std::max(sx1, (int)vp.left);
-                int cx2       = std::min(sx2, (int)vp.right);
                 int gap       = 2;
                 int thickness = std::max(1, std::min(2, (int)(1.0f * g_zoom)));
-                int lineY     = std::min(sy2 + gap, (int)vp.bottom);
-                if (cx2 <= cx1 || lineY < vp.top) continue;
-
-                DrawAlphaLine(hdc, cx1, lineY, cx2, lineY, ul.color, thickness, 200);
+                const int ulRot = GetEffectiveRotation(ul.pageIndex);
+                if (ulRot == 0 || ulRot == 2)
+                {
+                    int cx1   = std::max(sx1, (int)vp.left);
+                    int cx2   = std::min(sx2, (int)vp.right);
+                    int lineY = (ulRot == 0) ? std::min(sy2 + gap, (int)vp.bottom) : sy1 - gap;
+                    if (cx2 <= cx1 || lineY < vp.top || lineY > vp.bottom) continue;
+                    DrawAlphaLine(hdc, cx1, lineY, cx2, lineY, ul.color, thickness, 200);
+                }
+                else
+                {
+                    int cy1   = std::max(sy1, (int)vp.top);
+                    int cy2   = std::min(sy2, (int)vp.bottom);
+                    int lineX = (ulRot == 1) ? sx1 - gap : sx2 + gap;
+                    if (cy2 <= cy1 || lineX < vp.left || lineX > vp.right) continue;
+                    {
+                        const int w = thickness, h = cy2 - cy1;
+                        HDC     memDC = CreateCompatibleDC(hdc);
+                        HBITMAP hBmp  = CreateCompatibleBitmap(hdc, w, h);
+                        HBITMAP oBmp  = static_cast<HBITMAP>(SelectObject(memDC, hBmp));
+                        HBRUSH  br    = CreateSolidBrush(ul.color);
+                        RECT    fr    = { 0, 0, w, h };
+                        FillRect(memDC, &fr, br);
+                        DeleteObject(br);
+                        BLENDFUNCTION bf = {};
+                        bf.BlendOp             = AC_SRC_OVER;
+                        bf.SourceConstantAlpha = 200;
+                        AlphaBlend(hdc, lineX - w / 2, cy1, w, h, memDC, 0, 0, w, h, bf);
+                        SelectObject(memDC, oBmp);
+                        DeleteObject(hBmp);
+                        DeleteDC(memDC);
+                    }
+                }
 
                 if (isSelected)
                 {
@@ -3628,19 +3737,44 @@ static void DrawStrikeouts(HDC hdc, const RECT& clientRect)
 
                 int sx1, sy1, sx2, sy2;
                 PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx1, &sy1);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(so.pageIndex), &sx1, &sy1);
                 PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx2, &sy2);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(so.pageIndex), &sx2, &sy2);
                 if (sx1 > sx2) std::swap(sx1, sx2);
                 if (sy1 > sy2) std::swap(sy1, sy2);
 
-                int cx1  = std::max(sx1, (int)vp.left);
-                int cx2  = std::min(sx2, (int)vp.right);
-                int lineY = (sy1 + sy2) / 2;
-                if (cx2 <= cx1 || lineY < vp.top || lineY > vp.bottom) continue;
-
+                const int soRot = GetEffectiveRotation(so.pageIndex);
                 int thickness = std::max(1, (int)(1.5f * g_zoom));
-                DrawAlphaLine(hdc, cx1, lineY, cx2, lineY, so.color, thickness, 200);
+                if (soRot == 0 || soRot == 2)
+                {
+                    int cx1  = std::max(sx1, (int)vp.left);
+                    int cx2  = std::min(sx2, (int)vp.right);
+                    int lineY = (sy1 + sy2) / 2;
+                    if (cx2 <= cx1 || lineY < vp.top || lineY > vp.bottom) continue;
+                    DrawAlphaLine(hdc, cx1, lineY, cx2, lineY, so.color, thickness, 200);
+                }
+                else
+                {
+                    int cy1  = std::max(sy1, (int)vp.top);
+                    int cy2  = std::min(sy2, (int)vp.bottom);
+                    int lineX = (sx1 + sx2) / 2;
+                    if (cy2 <= cy1 || lineX < vp.left || lineX > vp.right) continue;
+                    const int w = thickness, h = cy2 - cy1;
+                    HDC     memDC = CreateCompatibleDC(hdc);
+                    HBITMAP hBmp  = CreateCompatibleBitmap(hdc, w, h);
+                    HBITMAP oBmp  = static_cast<HBITMAP>(SelectObject(memDC, hBmp));
+                    HBRUSH  br    = CreateSolidBrush(so.color);
+                    RECT    fr    = { 0, 0, w, h };
+                    FillRect(memDC, &fr, br);
+                    DeleteObject(br);
+                    BLENDFUNCTION bf = {};
+                    bf.BlendOp             = AC_SRC_OVER;
+                    bf.SourceConstantAlpha = 200;
+                    AlphaBlend(hdc, lineX - w / 2, cy1, w, h, memDC, 0, 0, w, h, bf);
+                    SelectObject(memDC, oBmp);
+                    DeleteObject(hBmp);
+                    DeleteDC(memDC);
+                }
 
                 if (isSelected)
                 {
@@ -3766,31 +3900,46 @@ static void DrawSquigglies(HDC hdc, const RECT& clientRect)
 
                 int sx1, sy1, sx2, sy2;
                 PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx1, &sy1);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(sq.pageIndex), &sx1, &sy1);
                 PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, g_rotation, &sx2, &sy2);
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(sq.pageIndex), &sx2, &sy2);
                 if (sx1 > sx2) std::swap(sx1, sx2);
                 if (sy1 > sy2) std::swap(sy1, sy2);
 
-                int cx1  = std::max(sx1, (int)vp.left);
-                int cx2  = std::min(sx2, (int)vp.right);
+                const int sqRot = GetEffectiveRotation(sq.pageIndex);
+                const bool vert = (sqRot == 1 || sqRot == 3);
                 // 글자 밑부분(디센더)을 가리지 않도록 물결선을 텍스트 하단보다 더 아래로 내려서 그림
                 int gap  = std::max(1, (int)(1.0f * g_zoom));
-                int baseY = std::min(sy2 + amplitude + gap, (int)vp.bottom);
-                if (cx2 <= cx1 || baseY < vp.top) continue;
-
-                int w2 = cx2 - cx1 + 1;
-
-                // 버퍼 재사용: 크기가 충분하지 않을 때만 재할당
-                if (w2 > sqBmpW || h2 > sqBmpH)
+                int c1, c2, baseY = 0, baseX = 0;
+                if (!vert)
                 {
-                    if (sqBmp) { SelectObject(sqDC, sqOld); DeleteObject(sqBmp); }
-                    sqBmp  = CreateCompatibleBitmap(hdc, w2, h2);
-                    sqOld  = static_cast<HBITMAP>(SelectObject(sqDC, sqBmp));
-                    sqBmpW = w2; sqBmpH = h2;
+                    c1 = std::max(sx1, (int)vp.left);
+                    c2 = std::min(sx2, (int)vp.right);
+                    baseY = (sqRot == 0) ? std::min(sy2 + amplitude + gap, (int)vp.bottom) : sy1 - amplitude - gap;
+                    if (c2 <= c1 || baseY < vp.top || baseY > vp.bottom) continue;
+                }
+                else
+                {
+                    c1 = std::max(sy1, (int)vp.top);
+                    c2 = std::min(sy2, (int)vp.bottom);
+                    baseX = (sqRot == 1) ? sx1 - amplitude - gap : sx2 + amplitude + gap;
+                    if (c2 <= c1 || baseX < vp.left || baseX > vp.right) continue;
                 }
 
-                RECT fr2 = { 0, 0, w2, h2 };
+                int w2 = c2 - c1 + 1;
+                const int bufW = vert ? h2 : w2;
+                const int bufH = vert ? w2 : h2;
+
+                // 버퍼 재사용: 크기가 충분하지 않을 때만 재할당
+                if (bufW > sqBmpW || bufH > sqBmpH)
+                {
+                    if (sqBmp) { SelectObject(sqDC, sqOld); DeleteObject(sqBmp); }
+                    sqBmp  = CreateCompatibleBitmap(hdc, bufW, bufH);
+                    sqOld  = static_cast<HBITMAP>(SelectObject(sqDC, sqBmp));
+                    sqBmpW = bufW; sqBmpH = bufH;
+                }
+
+                RECT fr2 = { 0, 0, bufW, bufH };
                 FillRect(sqDC, &fr2, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
                 HPEN hPen2 = CreatePen(PS_SOLID, thickness, sq.color);
                 HPEN oPen2 = static_cast<HPEN>(SelectObject(sqDC, hPen2));
@@ -3800,14 +3949,19 @@ static void DrawSquigglies(HDC hdc, const RECT& clientRect)
                 {
                     double phase = (double)px / waveLen * 2.0 * 3.14159265;
                     int py = amplitude + (int)(amplitude * std::sin(phase));
-                    pts2.push_back({ px, py });
+                    if (vert) pts2.push_back({ py, px });
+                    else      pts2.push_back({ px, py });
                 }
                 if (pts2.size() >= 2)
                     Polyline(sqDC, pts2.data(), (int)pts2.size());
                 SelectObject(sqDC, oPen2);
                 DeleteObject(hPen2);
-                AlphaBlend(hdc, cx1, baseY - amplitude - thickness, w2, h2,
-                    sqDC, 0, 0, w2, h2, sqBf);
+                if (vert)
+                    AlphaBlend(hdc, baseX - amplitude - thickness, c1, bufW, bufH,
+                        sqDC, 0, 0, bufW, bufH, sqBf);
+                else
+                    AlphaBlend(hdc, c1, baseY - amplitude - thickness, bufW, bufH,
+                        sqDC, 0, 0, bufW, bufH, sqBf);
 
                 if (isSelected)
                 {
@@ -4065,7 +4219,7 @@ static void DrawNotes(HDC hdc, const RECT& clientRect)
         const double pageW = g_pageLayouts[note.pageIndex].pdfW;
         const double pageH = g_pageLayouts[note.pageIndex].pdfH;
         int sx, sy;
-        PdfToScreen(note.pdfX, note.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx, &sy);
+        PdfToScreen(note.pdfX, note.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(note.pageIndex), &sx, &sy);
 
         // 화면 밖이면 스킵
         if (sx < vp.left - NOTE_ICON_SIZE || sx > vp.right + NOTE_ICON_SIZE) continue;
@@ -4139,7 +4293,7 @@ static void DrawNotes(HDC hdc, const RECT& clientRect)
             const double pageW = g_pageLayouts[hn.pageIndex].pdfW;
             const double pageH = g_pageLayouts[hn.pageIndex].pdfH;
             int sx, sy;
-            PdfToScreen(hn.pdfX, hn.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx, &sy);
+            PdfToScreen(hn.pdfX, hn.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(hn.pageIndex), &sx, &sy);
 
             const std::wstring& txt = hn.text.empty() ? std::wstring(L"(내용 없음)") : hn.text;
 
@@ -4208,7 +4362,7 @@ static int HitTestNote(int screenX, int screenY, const RECT& vp)
         const double pageW = g_pageLayouts[note.pageIndex].pdfW;
         const double pageH = g_pageLayouts[note.pageIndex].pdfH;
         int sx, sy;
-        PdfToScreen(note.pdfX, note.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx, &sy);
+        PdfToScreen(note.pdfX, note.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(note.pageIndex), &sx, &sy);
 
         RECT hitRc = { sx - 2, sy - NOTE_ICON_SIZE - 2, sx + NOTE_ICON_SIZE + 2, sy + 2 };
         POINT pt = { screenX, screenY };
@@ -4229,8 +4383,8 @@ static RECT TextBoxScreenRect(const TextBoxItem& tb)
     GetPageScreenPos(tb.pageIndex, vp, &pgLeft, &pgTop);
     double pageW = g_pageLayouts[tb.pageIndex].pdfW, pageH = g_pageLayouts[tb.pageIndex].pdfH;
     int sx, sy, sx2, sy2;
-    PdfToScreen(tb.pdfX,           tb.pdfY,           pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx,  &sy);
-    PdfToScreen(tb.pdfX + tb.pdfW, tb.pdfY - tb.pdfH, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx2, &sy2);
+    PdfToScreen(tb.pdfX,           tb.pdfY,           pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(tb.pageIndex), &sx,  &sy);
+    PdfToScreen(tb.pdfX + tb.pdfW, tb.pdfY - tb.pdfH, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(tb.pageIndex), &sx2, &sy2);
     RECT r = { std::min(sx,sx2), std::min(sy,sy2), std::max(sx,sx2), std::max(sy,sy2) };
     return r;
 }
@@ -4512,8 +4666,8 @@ static RECT SigScreenRect(const SignatureItem& sig)
     double pageW = g_pageLayouts[sig.pageIndex].pdfW;
     double pageH = g_pageLayouts[sig.pageIndex].pdfH;
     int sx, sy, sx2, sy2;
-    PdfToScreen(sig.pdfX,            sig.pdfY,            pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx,  &sy);
-    PdfToScreen(sig.pdfX + sig.pdfW, sig.pdfY - sig.pdfH, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx2, &sy2);
+    PdfToScreen(sig.pdfX,            sig.pdfY,            pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &sx,  &sy);
+    PdfToScreen(sig.pdfX + sig.pdfW, sig.pdfY - sig.pdfH, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &sx2, &sy2);
     RECT r = { std::min(sx,sx2), std::min(sy,sy2), std::max(sx,sx2), std::max(sy,sy2) };
     return r;
 }
@@ -4567,8 +4721,8 @@ static void DrawRedacts(HDC hdc, const RECT& clientRect)
         double pageW = g_pageLayouts[rd.pageIndex].pdfW;
         double pageH = g_pageLayouts[rd.pageIndex].pdfH;
         int sxA, syA, sxB, syB;
-        PdfToScreen(rd.pdfX,           rd.pdfY,           pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sxA, &syA);
-        PdfToScreen(rd.pdfX + rd.pdfW, rd.pdfY - rd.pdfH, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sxB, &syB);
+        PdfToScreen(rd.pdfX,           rd.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sxA, &syA);
+        PdfToScreen(rd.pdfX + rd.pdfW, rd.pdfY - rd.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sxB, &syB);
         int sx1 = std::min(sxA, sxB), sy1 = std::min(syA, syB);
         int sx2 = std::max(sxA, sxB), sy2 = std::max(syA, syB);
 
@@ -4617,8 +4771,8 @@ static void DrawShapes(HDC hdc, const RECT& clientRect)
         double pageW = g_pageLayouts[sh.pageIndex].pdfW;
         double pageH = g_pageLayouts[sh.pageIndex].pdfH;
         int sxA, syA, sxB, syB;
-        PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sxA, &syA);
-        PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sxB, &syB);
+        PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sxA, &syA);
+        PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sxB, &syB);
         int sx1 = std::min(sxA, sxB), sy1 = std::min(syA, syB);
         int sx2 = std::max(sxA, sxB), sy2 = std::max(syA, syB);
         int w   = sx2 - sx1, h = sy2 - sy1;
@@ -4688,9 +4842,9 @@ static void DrawShapes(HDC hdc, const RECT& clientRect)
                 {
                     int sx1, sy1, sx2, sy2;
                     PdfToScreen(stroke.pdfPts[i-1].first, stroke.pdfPts[i-1].second,
-                                pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx1, &sy1);
+                                pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(stroke.pageIndex), &sx1, &sy1);
                     PdfToScreen(stroke.pdfPts[i].first,   stroke.pdfPts[i].second,
-                                pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx2, &sy2);
+                                pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(stroke.pageIndex), &sx2, &sy2);
                     g.DrawLine(&selPen, (INT)sx1, (INT)sy1, (INT)sx2, (INT)sy2);
                 }
             }
@@ -4703,9 +4857,9 @@ static void DrawShapes(HDC hdc, const RECT& clientRect)
             {
                 int sx1, sy1, sx2, sy2;
                 PdfToScreen(stroke.pdfPts[i-1].first, stroke.pdfPts[i-1].second,
-                            pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx1, &sy1);
+                            pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(stroke.pageIndex), &sx1, &sy1);
                 PdfToScreen(stroke.pdfPts[i].first,   stroke.pdfPts[i].second,
-                            pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx2, &sy2);
+                            pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(stroke.pageIndex), &sx2, &sy2);
                 g.DrawLine(&inkPen, (INT)sx1, (INT)sy1, (INT)sx2, (INT)sy2);
             }
         }
@@ -4781,7 +4935,7 @@ static void DrawSignatures(HDC hdc, const RECT& clientRect)
                 if (stroke.size() == 1) {
                     int sx2, sy2;
                     PdfToScreen(stroke[0].x, stroke[0].y, pageW2, pageH2,
-                        pgLeft, pgTop, g_zoom, g_rotation, &sx2, &sy2);
+                        pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &sx2, &sy2);
                     float r2 = penW / 2.0f;
                     Gdiplus::SolidBrush dot(Gdiplus::Color(255, 20, 20, 20));
                     g.FillEllipse(&dot, (float)sx2 - r2, (float)sy2 - r2, penW, penW);
@@ -4790,9 +4944,9 @@ static void DrawSignatures(HDC hdc, const RECT& clientRect)
                 for (int i = 1; i < (int)stroke.size(); i++) {
                     int x1, y1, x2, y2;
                     PdfToScreen(stroke[i-1].x, stroke[i-1].y, pageW2, pageH2,
-                        pgLeft, pgTop, g_zoom, g_rotation, &x1, &y1);
+                        pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &x1, &y1);
                     PdfToScreen(stroke[i].x,   stroke[i].y,   pageW2, pageH2,
-                        pgLeft, pgTop, g_zoom, g_rotation, &x2, &y2);
+                        pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &x2, &y2);
                     g.DrawLine(&pen, x1, y1, x2, y2);
                 }
             }
@@ -6587,21 +6741,24 @@ static void SaveDocument(HWND hWnd, bool saveAs)
     }
 
     // 회전 영구 적용: 전체 페이지에 현재 회전값 저장
-    if (g_rotation != 0)
+    bool anyPageRot = false;
+    for (int r : g_pageRot) if (r) { anyPageRot = true; break; }
+    if (g_rotation != 0 || anyPageRot)
     {
         for (int pi = 0; pi < g_pageCount; ++pi)
         {
             FPDF_PAGE pg = FPDF_LoadPage(g_pdfDoc, pi);
             if (pg)
             {
-                // 기존 페이지 내장 회전에 g_rotation을 누적 적용
+                // 기존 페이지 내장 회전에 전체 회전과 페이지별 회전을 누적 적용
                 int existing = FPDFPage_GetRotation(pg);
-                FPDFPage_SetRotation(pg, (existing + g_rotation) % 4);
+                FPDFPage_SetRotation(pg, (existing + GetEffectiveRotation(pi)) % 4);
                 FPDFPage_GenerateContent(pg);
                 FPDF_ClosePage(pg);
             }
         }
-        g_rotation = 0; // 저장 후 회전 초기화 (이미 파일에 반영됨)
+        g_pageRot.clear();
+        g_rotation = 0; // 저장 후 회전 초기화
     }
 
     // flatten: 서명이 있을 때만 페이지 오브젝트를 병합한다.
@@ -7052,9 +7209,9 @@ static void DrawTextSelection(HDC hdc, const RECT& clientRect)
 
         int sx1, sy1, sx2, sy2;
         PdfToScreen(cachedRects[ri].left, cachedRects[ri].top, pageW, pageH,
-            pgLeft, pgTop, g_zoom, g_rotation, &sx1, &sy1);
+            pgLeft, pgTop, g_zoom, GetEffectiveRotation(selPage), &sx1, &sy1);
         PdfToScreen(cachedRects[ri].right, cachedRects[ri].bottom, pageW, pageH,
-            pgLeft, pgTop, g_zoom, g_rotation, &sx2, &sy2);
+            pgLeft, pgTop, g_zoom, GetEffectiveRotation(selPage), &sx2, &sy2);
         if (sx1 > sx2) std::swap(sx1, sx2);
         if (sy1 > sy2) std::swap(sy1, sy2);
 
@@ -7644,9 +7801,22 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
 
     // 사이드바 배경
     RECT bgRect = { 0, sbTop, sbRight, sbBottom };
-    HBRUSH bgBr = CreateSolidBrush(RGB(30, 28, 40));
-    FillRect(hdc, &bgRect, bgBr);
-    DeleteObject(bgBr);
+    if (g_sidebarTab == TAB_THUMBNAILS)
+    {
+        TRIVERTEX tv[2] = {};
+        tv[0].x = bgRect.left;  tv[0].y = bgRect.top;
+        tv[0].Red = 0x2800; tv[0].Green = 0x2600; tv[0].Blue = 0x3800;
+        tv[1].x = bgRect.right; tv[1].y = bgRect.bottom;
+        tv[1].Red = 0x1A00; tv[1].Green = 0x1900; tv[1].Blue = 0x2400;
+        GRADIENT_RECT gr = { 0, 1 };
+        GradientFill(hdc, tv, 2, &gr, 1, GRADIENT_FILL_RECT_V);
+    }
+    else
+    {
+        HBRUSH bgBr = CreateSolidBrush(RGB(30, 28, 40));
+        FillRect(hdc, &bgRect, bgBr);
+        DeleteObject(bgBr);
+    }
 
     // ─── 헤더 ───
     RECT headerRect = { 0, sbTop, sbRight, sbTop + SIDEBAR_HEADER_H };
@@ -7659,12 +7829,28 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, hdrFont));
     SetBkMode(hdc, TRANSPARENT);
 
-    const wchar_t* headerLabel = (g_sidebarTab == TAB_BOOKMARKS)
-        ? L"\x2630 \xBAA9\xCC28"
-        : L"\x25A3 \xD398\xC774\xC9C0";
+    const bool isBm = (g_sidebarTab == TAB_BOOKMARKS);
+    const wchar_t* headerLabel = isBm ? L"\xBAA9\xCC28" : L"\xD398\xC774\xC9C0";
+    const wchar_t* iconGlyph   = isBm ? L"\xE8FD" : L"\xE7C3";
     RECT labelRect = { 0, sbTop, sbRight, sbTop + SIDEBAR_HEADER_H };
     SetTextColor(hdc, RGB(220, 218, 235));
-    DrawTextW(hdc, headerLabel, -1, &labelRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    HFONT icoFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
+    SIZE txtSz = {}, icoSz = {};
+    GetTextExtentPoint32W(hdc, headerLabel, (int)wcslen(headerLabel), &txtSz);
+    HFONT prevF = static_cast<HFONT>(SelectObject(hdc, icoFont));
+    GetTextExtentPoint32W(hdc, iconGlyph, 1, &icoSz);
+    const int gap = 6;
+    int totalW = icoSz.cx + gap + txtSz.cx;
+    int startX = (sbRight - totalW) / 2;
+    RECT icoRc = { startX, sbTop, startX + icoSz.cx, sbTop + SIDEBAR_HEADER_H };
+    DrawTextW(hdc, iconGlyph, 1, &icoRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, prevF);
+    DeleteObject(icoFont);
+
+    RECT txtRc = { startX + icoSz.cx + gap, sbTop, sbRight, sbTop + SIDEBAR_HEADER_H };
+    DrawTextW(hdc, headerLabel, -1, &txtRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
     SelectObject(hdc, oldFont);
     DeleteObject(hdrFont);
@@ -8248,10 +8434,10 @@ static void RenderPage(HWND hWnd, HDC hdc, const RECT& clientRect)
             if (fpdfBmp)
             {
                 FPDFBitmap_FillRect(fpdfBmp, 0, 0, renderW, renderH, 0xFFFFFFFF);
-                FPDF_RenderPageBitmap(fpdfBmp, g_pdfPage, 0, 0, renderW, renderH, g_rotation,
+                FPDF_RenderPageBitmap(fpdfBmp, g_pdfPage, 0, 0, renderW, renderH, GetEffectiveRotation(i),
                     FPDF_ANNOT | FPDF_LCD_TEXT);
                 FPDF_FFLDraw(g_formHandle, fpdfBmp, g_pdfPage,
-                    0, 0, renderW, renderH, g_rotation, FPDF_ANNOT | FPDF_LCD_TEXT);
+                    0, 0, renderW, renderH, GetEffectiveRotation(i), FPDF_ANNOT | FPDF_LCD_TEXT);
             }
             if (fpdfBmp)
             {
@@ -9309,6 +9495,25 @@ static void SidebarAnimStep(HWND hWnd)
     InvalidateRect(hWnd, &sbInv, FALSE);
 }
 
+static void ScrollThumbnailToCurrentPage(HWND hWnd)
+{
+    if (!g_pdfDoc || g_pageLayouts.empty() || g_currentPage < 0 || g_currentPage >= g_pageCount) return;
+    RECT cr; GetClientRect(hWnd, &cr);
+    const int availW = SIDEBAR_WIDTH - SIDEBAR_THUMB_PAD * 2;
+    const int contentH = (cr.bottom - STATUSBAR_HEIGHT) - (GetBelowToolbarY() + SIDEBAR_HEADER_H);
+    int top = 0, itemH = 0;
+    for (int i = 0; i <= g_currentPage; ++i)
+    {
+        double pw = g_pageLayouts[i].pdfW;
+        double ph = g_pageLayouts[i].pdfH;
+        if (pw <= 0) pw = 1;
+        itemH = (int)(ph / pw * availW) + 20 + SIDEBAR_THUMB_GAP;
+        if (i < g_currentPage) top += itemH;
+    }
+    const int maxScroll = std::max(0, GetThumbnailTotalHeight(cr) - contentH);
+    g_thumbScrollY = std::clamp(top - (contentH - itemH) / 2, 0, maxScroll);
+}
+
 static void SidebarToggleAnimated(HWND hWnd, bool close, SidebarTab tab)
 {
     // 진행 중인 애니메이션은 즉시 마무리
@@ -9334,6 +9539,7 @@ static void SidebarToggleAnimated(HWND hWnd, bool close, SidebarTab tab)
     }
     g_sidebarVisible = true;
     g_sidebarTab = tab;
+    if (tab == TAB_THUMBNAILS) ScrollThumbnailToCurrentPage(hWnd);
     SidebarFinishLayout(hWnd);
     if (!wasVisible)
     {
@@ -9918,35 +10124,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         }
         case IDM_ROTATE_CW:
-            if (g_pdfDoc) {
-                g_rotation = (g_rotation + 1) % 4;
-                ClearPageCache();
-                ClearPreviewCache();
-                ClearThumbCache();
-                InitThumbCache(g_pageCount);
-                RecalcPageLayouts();
-                for (auto& h : g_highlights)  h.cachedRects.clear();
-                for (auto& u : g_underlines)  u.cachedRects.clear();
-                for (auto& s : g_strikeouts)  s.cachedRects.clear();
-                for (auto& q : g_squigglies)  q.cachedRects.clear();
-                UpdateScrollBars(hWnd);
-                InvalidateRect(hWnd, nullptr, TRUE);
-            }
+            if (g_pdfDoc) RotateAllKeepPosition(hWnd, 1);
             break;
         case IDM_ROTATE_CCW:
-            if (g_pdfDoc) {
-                g_rotation = (g_rotation + 3) % 4;
-                ClearPageCache();
-                ClearThumbCache();
-                InitThumbCache(g_pageCount);
-                RecalcPageLayouts();
-                for (auto& h : g_highlights)  h.cachedRects.clear();
-                for (auto& u : g_underlines)  u.cachedRects.clear();
-                for (auto& s : g_strikeouts)  s.cachedRects.clear();
-                for (auto& q : g_squigglies)  q.cachedRects.clear();
-                UpdateScrollBars(hWnd);
-                InvalidateRect(hWnd, nullptr, TRUE);
-            }
+            if (g_pdfDoc) RotateAllKeepPosition(hWnd, 3);
             break;
         case IDM_DARK_MODE:
             g_darkMode = !g_darkMode;
@@ -10373,7 +10554,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             int newSx = x - g_noteDragOffsetX;
             int newSy = y - g_noteDragOffsetY;
             double newPdfX, newPdfY;
-            ScreenToPdf(newSx, newSy, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &newPdfX, &newPdfY);
+            ScreenToPdf(newSx, newSy, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(note.pageIndex), &newPdfX, &newPdfY);
             note.pdfX = newPdfX;
             note.pdfY = newPdfY;
             g_dirty = true;
@@ -10396,7 +10577,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 int newSx = x - g_tbDragOffsetX;
                 int newSy = y - g_tbDragOffsetY;
                 double newPdfX, newPdfY;
-                ScreenToPdf(newSx, newSy, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &newPdfX, &newPdfY);
+                ScreenToPdf(newSx, newSy, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(tb.pageIndex), &newPdfX, &newPdfY);
                 tb.pdfX = newPdfX;
                 tb.pdfY = newPdfY;
                 g_dirty = true;
@@ -10430,8 +10611,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
                 // 마우스 델타 → PDF 좌표 델타
                 double ax0, ay0, ax1, ay1;
-                ScreenToPdf(g_tbResizeInitMouseX,          g_tbResizeInitMouseY,          pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &ax0, &ay0);
-                ScreenToPdf(g_tbResizeInitMouseX + (x - g_tbResizeInitMouseX), g_tbResizeInitMouseY + (y - g_tbResizeInitMouseY), pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &ax1, &ay1);
+                ScreenToPdf(g_tbResizeInitMouseX,          g_tbResizeInitMouseY,          pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(tb.pageIndex), &ax0, &ay0);
+                ScreenToPdf(g_tbResizeInitMouseX + (x - g_tbResizeInitMouseX), g_tbResizeInitMouseY + (y - g_tbResizeInitMouseY), pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(tb.pageIndex), &ax1, &ay1);
                 double dx = ax1 - ax0;
                 double dy = ay1 - ay0; // PDF Y는 위가 +이므로 dy 부호 주의
 
@@ -10492,7 +10673,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 int newSx = x - g_sigDragOffsetX;
                 int newSy = y - g_sigDragOffsetY;
                 double newPdfX, newPdfY;
-                ScreenToPdf(newSx, newSy, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &newPdfX, &newPdfY);
+                ScreenToPdf(newSx, newSy, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &newPdfX, &newPdfY);
                 double dx = newPdfX - sig.pdfX;
                 double dy = newPdfY - sig.pdfY;
                 sig.pdfX = newPdfX;
@@ -10521,8 +10702,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 const double pageW = g_pageLayouts[sig.pageIndex].pdfW;
                 const double pageH = g_pageLayouts[sig.pageIndex].pdfH;
                 double ax0, ay0, ax1, ay1;
-                ScreenToPdf(g_sigResizeMouseX, g_sigResizeMouseY, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &ax0, &ay0);
-                ScreenToPdf(x, y, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &ax1, &ay1);
+                ScreenToPdf(g_sigResizeMouseX, g_sigResizeMouseY, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &ax0, &ay0);
+                ScreenToPdf(x, y, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &ax1, &ay1);
                 double dx = ax1 - ax0, dy = ay1 - ay0;
                 double lx = g_sigResizeInitX, ty = g_sigResizeInitY;
                 double rx = lx + g_sigResizeInitW, by = ty - g_sigResizeInitH;
@@ -11307,8 +11488,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     double pageW = g_pageLayouts[rd.pageIndex].pdfW;
                     double pageH = g_pageLayouts[rd.pageIndex].pdfH;
                     int sx1, sy1, sx2, sy2;
-                    PdfToScreen(rd.pdfX,           rd.pdfY,           pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx1, &sy1);
-                    PdfToScreen(rd.pdfX + rd.pdfW, rd.pdfY - rd.pdfH, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx2, &sy2);
+                    PdfToScreen(rd.pdfX,           rd.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sx1, &sy1);
+                    PdfToScreen(rd.pdfX + rd.pdfW, rd.pdfY - rd.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sx2, &sy2);
                     // 클릭 감지 영역을 4픽셀 넉넉하게 확장
                     RECT rr = { std::min(sx1,sx2) - 4, std::min(sy1,sy2) - 4,
                                 std::max(sx1,sx2) + 4, std::max(sy1,sy2) + 4 };
@@ -11347,8 +11528,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     double pageW = g_pageLayouts[sh.pageIndex].pdfW;
                     double pageH = g_pageLayouts[sh.pageIndex].pdfH;
                     int sx1, sy1, sx2, sy2;
-                    PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx1, &sy1);
-                    PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx2, &sy2);
+                    PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx1, &sy1);
+                    PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx2, &sy2);
                     RECT rr = { std::min(sx1,sx2) - 4, std::min(sy1,sy2) - 4,
                                 std::max(sx1,sx2) + 4, std::max(sy1,sy2) + 4 };
                     POINT pt0 = { x, y };
@@ -11390,9 +11571,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     {
                         int ax, ay, bx, by;
                         PdfToScreen(sk.pdfPts[pi2-1].first, sk.pdfPts[pi2-1].second,
-                                    pageW, pageH, pgL, pgT, g_zoom, g_rotation, &ax, &ay);
+                                    pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sk.pageIndex), &ax, &ay);
                         PdfToScreen(sk.pdfPts[pi2].first,   sk.pdfPts[pi2].second,
-                                    pageW, pageH, pgL, pgT, g_zoom, g_rotation, &bx, &by);
+                                    pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sk.pageIndex), &bx, &by);
                         // 점 (x,y)와 선분 (ax,ay)-(bx,by) 거리
                         float dx = (float)(bx - ax), dy = (float)(by - ay);
                         float len2 = dx*dx + dy*dy;
@@ -11456,8 +11637,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     double pageW = g_pageLayouts[sh.pageIndex].pdfW;
                     double pageH = g_pageLayouts[sh.pageIndex].pdfH;
                     int sx1, sy1, sx2, sy2;
-                    PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx1, &sy1);
-                    PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx2, &sy2);
+                    PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx1, &sy1);
+                    PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx2, &sy2);
                     RECT rr = { std::min(sx1,sx2) - 4, std::min(sy1,sy2) - 4,
                                 std::max(sx1,sx2) + 4, std::max(sy1,sy2) + 4 };
                     POINT pt0 = { x, y };
@@ -11499,7 +11680,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 const double pageW = g_pageLayouts[note.pageIndex].pdfW;
                 const double pageH = g_pageLayouts[note.pageIndex].pdfH;
                 int sx, sy;
-                PdfToScreen(note.pdfX, note.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, g_rotation, &sx, &sy);
+                PdfToScreen(note.pdfX, note.pdfY, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(note.pageIndex), &sx, &sy);
 
                 g_isDraggingNote  = true;
                 g_draggingNoteIdx = ni;
@@ -11955,7 +12136,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 for (auto& sp : g_inkStroke)
                 {
                     double px, py;
-                    ScreenToPdf(sp.x, sp.y, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &px, &py);
+                    ScreenToPdf(sp.x, sp.y, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(g_currentPage), &px, &py);
                     overlay.pdfPts.emplace_back(px, py);
                 }
                 g_inkStrokes.push_back(std::move(overlay));
@@ -11985,8 +12166,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 double pageW = g_pageLayouts[g_currentPage].pdfW;
                 double pageH = g_pageLayouts[g_currentPage].pdfH;
                 double pdfX1, pdfY1, pdfX2, pdfY2;
-                ScreenToPdf(x1, y1, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &pdfX1, &pdfY1);
-                ScreenToPdf(x2, y2, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &pdfX2, &pdfY2);
+                ScreenToPdf(x1, y1, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(g_currentPage), &pdfX1, &pdfY1);
+                ScreenToPdf(x2, y2, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(g_currentPage), &pdfX2, &pdfY2);
                 RedactItem rd;
                 rd.pageIndex = g_currentPage;
                 rd.pdfX = std::min(pdfX1, pdfX2);
@@ -12030,8 +12211,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 double pageW = g_pageLayouts[targetPage].pdfW;
                 double pageH = g_pageLayouts[targetPage].pdfH;
                 double pdfX1, pdfY1, pdfX2, pdfY2;
-                ScreenToPdf(x1, y1, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &pdfX1, &pdfY1);
-                ScreenToPdf(x2, y2, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &pdfX2, &pdfY2);
+                ScreenToPdf(x1, y1, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(targetPage), &pdfX1, &pdfY1);
+                ScreenToPdf(x2, y2, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(targetPage), &pdfX2, &pdfY2);
                 ShapeItem sh;
                 sh.pageIndex = targetPage;
                 sh.isCircle  = (g_shapeMode == 2);
@@ -12322,6 +12503,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int mx = ptClient.x;
         int my = ptClient.y;
 
+        {
+            RECT crTh; GetClientRect(hWnd, &crTh);
+            const int thIdx = ThumbnailHitTest(mx, my, crTh);
+            if (thIdx >= 0)
+            {
+                HMENU hTh = CreatePopupMenu();
+                if (!hTh) return 0;
+                AppendMenuW(hTh, MF_STRING, 11, LS(STR_CTX_PAGE_ROT_CW));
+                AppendMenuW(hTh, MF_STRING, 12, LS(STR_CTX_PAGE_ROT_CCW));
+                AppendMenuW(hTh, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hTh, MF_STRING, 13, LS(STR_CTX_PAGE_EXPORT));
+                int thCmd = TrackPopupMenu(hTh, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                    ptScreen.x, ptScreen.y, 0, hWnd, nullptr);
+                DestroyMenu(hTh);
+                if (thCmd == 11 || thCmd == 12)
+                    RotateSinglePage(hWnd, thIdx, thCmd == 11 ? 1 : 3);
+                else if (thCmd == 13)
+                    ExportPagesAsImages(hWnd, thIdx + 1);
+                return 0;
+            }
+            if (g_sidebarVisible && mx >= 0 && mx < SIDEBAR_WIDTH && g_sidebarTab == TAB_THUMBNAILS)
+                return 0;
+        }
+
         HMENU hPopup = CreatePopupMenu();
         if (!hPopup) return 0;
 
@@ -12560,8 +12765,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     double pageW = g_pageLayouts[sh.pageIndex].pdfW;
                     double pageH = g_pageLayouts[sh.pageIndex].pdfH;
                     int sx1, sy1, sx2, sy2;
-                    PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx1, &sy1);
-                    PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx2, &sy2);
+                    PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx1, &sy1);
+                    PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx2, &sy2);
                     RECT rsh = { std::min(sx1,sx2) - 4, std::min(sy1,sy2) - 4,
                                  std::max(sx1,sx2) + 4, std::max(sy1,sy2) + 4 };
                     POINT ptsh = { mx, my };
@@ -12590,6 +12795,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             6, LS(STR_CTX_ROT_CW));
         AppendMenuW(hPopup, MF_STRING | (g_pdfDoc ? 0 : MF_GRAYED),
             7, LS(STR_CTX_ROT_CCW));
+        {
+            RECT crR; GetClientRect(hWnd, &crR);
+            const RECT vpR = GetViewportRect(crR);
+            const bool onPage = g_pdfDoc && HitTestPageAtPoint(mx, my, vpR, nullptr, nullptr) >= 0;
+            AppendMenuW(hPopup, MF_STRING | (onPage ? 0 : MF_GRAYED), 11,
+                LS(STR_CTX_PAGE_ROT_CW));
+            AppendMenuW(hPopup, MF_STRING | (onPage ? 0 : MF_GRAYED), 12,
+                LS(STR_CTX_PAGE_ROT_CCW));
+        }
 
         AppendMenuW(hPopup, MF_SEPARATOR, 0, nullptr);
 
@@ -12674,6 +12888,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             break;
         case 3: SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_ZOOM_IN, 0), 0); break;
+        case 11:
+        case 12:
+        {
+            RECT crR; GetClientRect(hWnd, &crR);
+            const RECT vpR = GetViewportRect(crR);
+            int pgR = HitTestPageAtPoint(mx, my, vpR, nullptr, nullptr);
+            if (pgR >= 0) RotateSinglePage(hWnd, pgR, cmd == 11 ? 1 : 3);
+            break;
+        }
         case 60: // 메모 추가
         {
             RECT crn2; GetClientRect(hWnd, &crn2);
@@ -12754,8 +12977,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 double pageW = g_pageLayouts[sh.pageIndex].pdfW;
                 double pageH = g_pageLayouts[sh.pageIndex].pdfH;
                 int sx1, sy1, sx2, sy2;
-                PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx1, &sy1);
-                PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, g_rotation, &sx2, &sy2);
+                PdfToScreen(sh.pdfX,           sh.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx1, &sy1);
+                PdfToScreen(sh.pdfX + sh.pdfW, sh.pdfY - sh.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(sh.pageIndex), &sx2, &sy2);
                 RECT rsh2 = { std::min(sx1,sx2) - 4, std::min(sy1,sy2) - 4,
                               std::max(sx1,sx2) + 4, std::max(sy1,sy2) + 4 };
                 POINT ptsh2 = { mx, my };
@@ -13679,7 +13902,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (res->zoom != g_zoom
             || idx < 0 || idx >= g_pageCount
             || idx >= (int)g_pageCache.size()
-            || res->pixels.empty())
+            || res->pixels.empty()
+            || res->rotation != GetEffectiveRotation(idx))
         {
             delete res;
             break;

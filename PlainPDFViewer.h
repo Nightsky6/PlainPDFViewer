@@ -43,6 +43,7 @@ extern int                 g_currentPage;
 extern int                 g_pageCount;
 extern float               g_zoom;
 extern int                 g_rotation;
+int GetEffectiveRotation(int pageIndex);
 extern int                 g_scrollX;
 extern int                 g_scrollY;
 extern float               g_scrollYf;
