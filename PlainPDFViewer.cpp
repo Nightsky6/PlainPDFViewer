@@ -16,6 +16,7 @@
 #include "WordCloud.h"
 #include "PrintDialog.h"
 #include "PdfCompress.h"
+#include "ExportImage.h"
 #include "Toolbar.h"
 #include "FindBar.h"
 #include "WindowsOps.h"
@@ -454,7 +455,7 @@ struct RenderResult {
 // ─── 워커 전역 상태 ───────────────────────────────────────────────────────
 static std::deque<RenderRequest> g_renderQueue;
 static std::mutex                g_renderMtx;
-static std::mutex                g_pdfiumMtx;
+std::mutex                       g_pdfiumMtx;
 static std::condition_variable   g_renderCV;
 static bool                      g_pwPromptCancelled = false;   // 암호 입력 취소 여부 (오류 팝업 생략용)
 static std::thread               g_renderThread;
@@ -9203,6 +9204,8 @@ static void UpdateMenuLanguage(HWND hWnd)
     SetItem(hFile, IDM_PRINT,       LS(STR_MENU_PRINT));
     SetItem(hFile, IDM_COMPRESS,    (::LS)(L"PDF \uC555\uCD95(&C)...", L"Compress PDF(&C)...", L"PDF\u3092\u5727\u7E2E(&C)...", L"\u538B\u7F29 PDF(&C)...",
                                          L"Comprimir PDF(&C)...", L"Compresser le PDF(&C)...", L"PDF komprimieren(&C)...", L"Comprimir PDF(&C)...", L"\u0421\u0436\u0430\u0442\u044C PDF(&C)..."));
+    SetItem(hFile, IDM_EXPORT_IMAGE, (::LS)(L"이미지로 내보내기(&E)...", L"Export as Image(&E)...", L"画像として書き出し(&E)...", L"导出为图像(&E)...",
+                                         L"Exportar como imagen(&E)...", L"Exporter en image(&E)...", L"Als Bild exportieren(&E)...", L"Exportar como imagem(&E)...", L"Экспорт в изображение(&E)..."));
     SetItem(hFile, IDM_PROPERTIES,  LS(STR_MENU_PROPS));
     SetItem(hFile, IDM_EXIT,        LS(STR_MENU_EXIT));
 
@@ -9623,6 +9626,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case IDM_SAVE_AS:    SaveDocument(hWnd, true);                                    break;
         case IDM_PRINT:      PrintDocument(hWnd);                                        break;
         case IDM_COMPRESS:   ShowCompressPdfDialog(hWnd, g_filePath);                    break;
+        case IDM_EXPORT_IMAGE: ExportPagesAsImages(hWnd);                                break;
         case IDM_PROPERTIES: DocPropertiesDialog::Show(hWnd, g_pdfDoc, g_filePath, g_pageCount); break;
         case IDM_REDACT:
         {

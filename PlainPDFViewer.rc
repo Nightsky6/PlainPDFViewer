@@ -50,6 +50,7 @@ MENUITEM "탭 닫기\tCtrl+F4", IDM_CLOSE_TAB
 MENUITEM SEPARATOR
 MENUITEM "인쇄(&P)...\tCtrl+P", IDM_PRINT
 MENUITEM "PDF 압축(&C)...", IDM_COMPRESS
+MENUITEM "이미지로 내보내기(&E)...", IDM_EXPORT_IMAGE
 MENUITEM SEPARATOR
 MENUITEM "속성(&I)...", IDM_PROPERTIES
 MENUITEM SEPARATOR
@@ -347,8 +348,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 0,4,0,0
-PRODUCTVERSION 0,4,0,0
+FILEVERSION 0,4,1,0
+PRODUCTVERSION 0,4,1,0
 FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
 FILEFLAGS 0x1L
@@ -365,12 +366,12 @@ BLOCK "041204B0"
 BEGIN
 VALUE "CompanyName", "Nightsky Works"
 VALUE "FileDescription", "Plain PDF Viewer"
-VALUE "FileVersion", "0.4.0.0"
+VALUE "FileVersion", "0.4.1.0"
 VALUE "InternalName", "PlainPDFViewer"
 VALUE "LegalCopyright", "\x00A9 2026 Nightsky Works."
 VALUE "OriginalFilename", "PlainPDFViewer.exe"
 VALUE "ProductName", "Plain PDF Viewer"
-VALUE "ProductVersion", "0.4.0.0"
+VALUE "ProductVersion", "0.4.1.0"
 END
 END
 BLOCK "VarFileInfo"
