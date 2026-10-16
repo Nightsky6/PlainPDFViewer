@@ -20,6 +20,7 @@
 #define STR_SAVE_SIGNATURE_RU   L"• Подпись\n"
 #define STR_SAVE_REDACT_RU      L"• Редактирование\n"
 #define STR_SAVE_ROTATION_RU    L"• Поворот страницы ("
+#define STR_SAVE_PAGEROT_RU     L"• Постраничный поворот\n"
 #define STR_SAVE_QUESTION_RU    L"\nСохранить?"
 #define STR_SAVED_TOAST_RU      L"Сохранено"
 #define STR_PAGE_SAVED_TOAST_RU L"Страница сохранена"

@@ -20,6 +20,7 @@
 #define STR_SAVE_SIGNATURE_DE   L"• Unterschrift\n"
 #define STR_SAVE_REDACT_DE      L"• Schwärzung\n"
 #define STR_SAVE_ROTATION_DE    L"• Seitenrotation ("
+#define STR_SAVE_PAGEROT_DE     L"• Seitenweise Rotation\n"
 #define STR_SAVE_QUESTION_DE    L"\nSpeichern?"
 #define STR_SAVED_TOAST_DE      L"Gespeichert"
 #define STR_PAGE_SAVED_TOAST_DE L"Seite gespeichert"

@@ -20,6 +20,7 @@
 #define STR_SAVE_SIGNATURE_JA   L"• 署名\n"
 #define STR_SAVE_REDACT_JA      L"• 墨消し\n"
 #define STR_SAVE_ROTATION_JA    L"• ページ回転 ("
+#define STR_SAVE_PAGEROT_JA     L"• ページごとの回転\n"
 #define STR_SAVE_QUESTION_JA    L"\n保存しますか？"
 #define STR_SAVED_TOAST_JA      L"保存しました"
 #define STR_PAGE_SAVED_TOAST_JA L"ページを保存しました"

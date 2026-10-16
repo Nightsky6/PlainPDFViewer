@@ -20,6 +20,7 @@
 #define STR_SAVE_SIGNATURE_EN   L"• Signature\n"
 #define STR_SAVE_REDACT_EN      L"• Redaction\n"
 #define STR_SAVE_ROTATION_EN    L"• Page rotation ("
+#define STR_SAVE_PAGEROT_EN     L"• Per-page rotation\n"
 #define STR_SAVE_QUESTION_EN    L"\nSave?"
 #define STR_SAVED_TOAST_EN      L"Saved"
 #define STR_PAGE_SAVED_TOAST_EN L"Page saved"

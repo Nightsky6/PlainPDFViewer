@@ -20,6 +20,7 @@
 #define STR_SAVE_SIGNATURE_ZH   L"• 签名\n"
 #define STR_SAVE_REDACT_ZH      L"• 遮盖\n"
 #define STR_SAVE_ROTATION_ZH    L"• 页面旋转（"
+#define STR_SAVE_PAGEROT_ZH     L"• 单页旋转\n"
 #define STR_SAVE_QUESTION_ZH    L"\n是否保存？"
 #define STR_SAVED_TOAST_ZH      L"已保存"
 #define STR_PAGE_SAVED_TOAST_ZH L"页面已保存"

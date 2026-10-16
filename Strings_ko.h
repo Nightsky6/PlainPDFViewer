@@ -20,6 +20,7 @@
 #define STR_SAVE_SIGNATURE_KO   L"• 서명\n"
 #define STR_SAVE_REDACT_KO      L"• 영역 삭제\n"
 #define STR_SAVE_ROTATION_KO    L"• 페이지 회전 ("
+#define STR_SAVE_PAGEROT_KO     L"• 페이지별 회전\n"
 #define STR_SAVE_QUESTION_KO    L"\n저장하시겠습니까?"
 #define STR_SAVED_TOAST_KO      L"저장되었습니다"
 #define STR_PAGE_SAVED_TOAST_KO L"페이지가 저장되었습니다"

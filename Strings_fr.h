@@ -20,6 +20,7 @@
 #define STR_SAVE_SIGNATURE_FR   L"• Signature\n"
 #define STR_SAVE_REDACT_FR      L"• Caviardage\n"
 #define STR_SAVE_ROTATION_FR    L"• Rotation de la page ("
+#define STR_SAVE_PAGEROT_FR     L"• Rotation par page\n"
 #define STR_SAVE_QUESTION_FR    L"\nEnregistrer ?"
 #define STR_SAVED_TOAST_FR      L"Enregistré"
 #define STR_PAGE_SAVED_TOAST_FR L"Page enregistrée"

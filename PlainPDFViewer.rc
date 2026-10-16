@@ -348,8 +348,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 0,4,1,0
-PRODUCTVERSION 0,4,1,0
+FILEVERSION 0,4,2,0
+PRODUCTVERSION 0,4,2,0
 FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
 FILEFLAGS 0x1L
@@ -366,12 +366,12 @@ BLOCK "041204B0"
 BEGIN
 VALUE "CompanyName", "Nightsky Works"
 VALUE "FileDescription", "Plain PDF Viewer"
-VALUE "FileVersion", "0.4.1.0"
+VALUE "FileVersion", "0.4.2.0"
 VALUE "InternalName", "PlainPDFViewer"
 VALUE "LegalCopyright", "\x00A9 2026 Nightsky Works."
 VALUE "OriginalFilename", "PlainPDFViewer.exe"
 VALUE "ProductName", "Plain PDF Viewer"
-VALUE "ProductVersion", "0.4.1.0"
+VALUE "ProductVersion", "0.4.2.0"
 END
 END
 BLOCK "VarFileInfo"

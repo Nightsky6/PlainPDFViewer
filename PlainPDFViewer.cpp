@@ -6586,10 +6586,13 @@ static void SaveDocument(HWND hWnd, bool saveAs)
     }
 
     // 서명 또는 redact가 있을 경우 저장 전 확인
-    if (!g_signatures.empty() || !g_redacts.empty() || g_rotation != 0) {
+    bool anyPageRotSave = false;
+    for (int r : g_pageRot) if (r) { anyPageRotSave = true; break; }
+    if (!g_signatures.empty() || !g_redacts.empty() || g_rotation != 0 || anyPageRotSave) {
         std::wstring msg = LS(STR_SAVE_PERMANENT);
         if (!g_signatures.empty()) msg += LS(STR_SAVE_SIGNATURE);
         if (!g_redacts.empty())    msg += LS(STR_SAVE_REDACT);
+        if (anyPageRotSave)        msg += LS(STR_SAVE_PAGEROT);
         if (g_rotation != 0) {
             static const wchar_t* rotNames[] = { L"0°", L"90°", L"180°", L"270°" };
             msg += std::wstring(LS(STR_SAVE_ROTATION)) + rotNames[g_rotation] + L")\n";
