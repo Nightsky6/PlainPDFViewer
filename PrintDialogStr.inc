@@ -16,4 +16,5 @@
 { L"Landscape", L"横", L"横向", L"Horizontal", L"Paysage", L"Querformat", L"Paisagem", L"Альбомная" },
 { L"Fit to page", L"用紙に合わせる", L"适合页面", L"Ajustar", L"Ajuster", L"Anpassen", L"Ajustar", L"По размеру" },
 { L"Actual size", L"実際のサイズ", L"实际大小", L"Tamaño real", L"Taille réelle", L"Originalgröße", L"Tamanho real", L"Реальный" },
+{ L"Poster tiles", L"ポスター分割", L"海报分割", L"Póster en mosaicos", L"Affiche en tuiles", L"Poster-Kacheln", L"Pôster em blocos", L"Постер из листов" },
 { L"Cancel", L"キャンセル", L"取消", L"Cancelar", L"Annuler", L"Abbrechen", L"Cancelar", L"Отмена" },

@@ -11,7 +11,13 @@ struct PrintDialogResult
 	int  toPage     = 0;
 	int  copies     = 1;
 	bool fitToPage  = true;      // false = 실제 크기(100%)
+	bool poster     = false;     // true = 한 페이지를 여러 장에 나눠 인쇄(포스터)
+	int  posterCols = 2;
+	int  posterRows = 2;
 };
+
+// 포스터 인쇄 시 인접 조각 간 겹침(붙이기 여유) 길이(mm)
+constexpr double POSTER_OVERLAP_MM = 10.0;
 
 // 미리보기가 포함된 인쇄 대화상자. 확인 시 true.
 bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentPage,

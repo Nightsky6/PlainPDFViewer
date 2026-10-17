@@ -26,7 +26,7 @@ namespace
 	{
 		ID_COMBO = 101, ID_PROPS, ID_COPIES, ID_RAD_ALL, ID_RAD_CUR, ID_RAD_RNG,
 		ID_ED_FROM, ID_ED_TO, ID_RAD_AUTO, ID_RAD_PORT, ID_RAD_LAND,
-		ID_RAD_FIT, ID_RAD_ACT, ID_PREV, ID_NEXT
+		ID_RAD_FIT, ID_RAD_ACT, ID_PREV, ID_NEXT, ID_RAD_POSTER, ID_ED_COLS, ID_ED_ROWS
 	};
 
 	constexpr int DLG_CW = 900;
@@ -48,8 +48,8 @@ namespace
 		HWND hRadAll = nullptr, hRadCur = nullptr, hRadRng = nullptr;
 		HWND hRadAuto = nullptr, hRadPort = nullptr, hRadLand = nullptr;
 		HWND hRadFit = nullptr, hRadAct = nullptr;
+		HWND hRadPoster = nullptr, hEdCols = nullptr, hEdRows = nullptr;
 		HWND hPrev = nullptr, hNext = nullptr, hPrint = nullptr, hCancel = nullptr;
-
 		FPDF_DOCUMENT doc = nullptr;
 		int  pageCount = 0, curPage = 0, rotation = 0;
 		std::mutex* mtx = nullptr;
@@ -240,6 +240,64 @@ namespace
 		const int M = 18;
 		double aw = rc.right - 2.0 * M, ah = rc.bottom - 2.0 * M;
 		if (aw < 10 || ah < 10) return;
+
+		if (Checked(s->hRadPoster))
+		{
+			const int cols = std::clamp(ReadInt(s->hEdCols, 2), 1, 10);
+			const int rows = std::clamp(ReadInt(s->hEdRows, 2), 1, 10);
+			const double ovX = POSTER_OVERLAP_MM / 25.4 * p.dpiX, ovY = POSTER_OVERLAP_MM / 25.4 * p.dpiY;
+			const double stepX = std::max(1.0, p.printW - ovX), stepY = std::max(1.0, p.printH - ovY);
+			const double totW = stepX * (cols - 1) + p.printW, totH = stepY * (rows - 1) + p.printH;
+			const double kk = std::min(aw / totW, ah / totH);
+			const int tw = std::max(1, (int)(totW * kk)), th = std::max(1, (int)(totH * kk));
+			const int tx = (rc.right - tw) / 2, ty = (rc.bottom - th) / 2;
+			RECT area = { tx, ty, tx + tw, ty + th };
+			HBRUSH bw2 = CreateSolidBrush(RGB(255, 255, 255)); FillRect(dc, &area, bw2); DeleteObject(bw2);
+
+			double pw0 = 0, ph0 = 0;
+			if (PageSize(s->previewPage, pw0, ph0))
+			{
+				const double sc = std::min(totW / (pw0 * p.dpiX / 72.0), totH / (ph0 * p.dpiY / 72.0));
+				const int dw = std::max(1, (int)(pw0 * p.dpiX / 72.0 * sc * kk));
+				const int dh = std::max(1, (int)(ph0 * p.dpiY / 72.0 * sc * kk));
+				if (dw <= 6000 && dh <= 6000 && EnsureCache(s->previewPage, dw, dh))
+				{
+					BITMAPINFO bmi = {};
+					bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+					bmi.bmiHeader.biWidth       = FPDFBitmap_GetStride(s->cache) / 4;
+					bmi.bmiHeader.biHeight      = -dh;
+					bmi.bmiHeader.biPlanes      = 1;
+					bmi.bmiHeader.biBitCount    = 32;
+					bmi.bmiHeader.biCompression = BI_RGB;
+					int saved = SaveDC(dc);
+					IntersectClipRect(dc, area.left, area.top, area.right, area.bottom);
+					StretchDIBits(dc, tx + (tw - dw) / 2, ty + (th - dh) / 2, dw, dh, 0, 0, dw, dh,
+								  FPDFBitmap_GetBuffer(s->cache), &bmi, DIB_RGB_COLORS, SRCCOPY);
+					RestoreDC(dc, saved);
+				}
+			}
+
+			HPEN pen = CreatePen(PS_DOT, 1, RGB(255, 99, 71));
+			HGDIOBJ oldPen = SelectObject(dc, pen);
+			HGDIOBJ oldBr = SelectObject(dc, GetStockObject(NULL_BRUSH));
+			int oldBk = SetBkMode(dc, TRANSPARENT);
+			COLORREF oldTc = SetTextColor(dc, RGB(255, 99, 71));
+			HGDIOBJ oldFont = SelectObject(dc, s->font);
+			for (int r = 0; r < rows; ++r)
+				for (int c = 0; c < cols; ++c)
+				{
+					int x0 = tx + (int)(c * stepX * kk), y0 = ty + (int)(r * stepY * kk);
+					int x1 = x0 + (int)(p.printW * kk), y1 = y0 + (int)(p.printH * kk);
+					Rectangle(dc, x0, y0, x1, y1);
+					wchar_t nb[16]; swprintf_s(nb, L"%d", r * cols + c + 1);
+					RECT tr = { x0 + 4, y0 + 2, x1, y1 };
+					DrawTextW(dc, nb, -1, &tr, DT_LEFT | DT_TOP | DT_SINGLELINE);
+				}
+			SelectObject(dc, oldFont);
+			SetTextColor(dc, oldTc); SetBkMode(dc, oldBk);
+			SelectObject(dc, oldBr); SelectObject(dc, oldPen); DeleteObject(pen);
+			return;
+		}
 		double k = std::min(aw / p.physW, ah / p.physH);
 		int pw = std::max(1, (int)(p.physW * k)), ph = std::max(1, (int)(p.physH * k));
 		int px = (rc.right - pw) / 2, py = (rc.bottom - ph) / 2;
@@ -421,6 +479,9 @@ namespace
 		s->out->toPage = t;
 		s->out->copies = copies;
 		s->out->fitToPage = Checked(s->hRadFit);
+		s->out->poster = Checked(s->hRadPoster);
+		s->out->posterCols = std::clamp(ReadInt(s->hEdCols, 2), 1, 10);
+		s->out->posterRows = std::clamp(ReadInt(s->hEdRows, 2), 1, 10);
 		s->ok = true;
 		s->done = true;
 	}
@@ -510,6 +571,7 @@ namespace
 				sec(T(L"\uBC29\uD5A5", L"Orientation"), 292.f);
 				sec(T(L"\uBC30\uC728", L"Scale"), 356.f);
 				gfx.DrawString(L"~", -1, &txtFont, Gdiplus::PointF(132.f, 253.f), &txtBr);
+				gfx.DrawString(L"x", -1, &txtFont, Gdiplus::PointF(248.f, 415.f), &txtBr);
 
 				if (s)
 				{
@@ -555,6 +617,7 @@ namespace
 		{
 			if (!s) break;
 			int id = LOWORD(w), code = HIWORD(w);
+			if ((id == ID_ED_COLS || id == ID_ED_ROWS) && code == EN_CHANGE) { OnChanged(); return 0; }
 			if ((id == ID_ED_FROM || id == ID_ED_TO) && code == EN_CHANGE) { OnChanged(); return 0; }
 			if (id == ID_COMBO && code == CBN_SELCHANGE)
 			{
@@ -591,7 +654,9 @@ namespace
 				OnChanged();
 				return 0;
 			case ID_RAD_AUTO: case ID_RAD_PORT: case ID_RAD_LAND:
-			case ID_RAD_FIT:  case ID_RAD_ACT:
+			case ID_RAD_FIT:  case ID_RAD_ACT: case ID_RAD_POSTER:
+				EnableWindow(s->hEdCols, Checked(s->hRadPoster));
+				EnableWindow(s->hEdRows, Checked(s->hRadPoster));
 				OnChanged();
 				return 0;
 			}
@@ -722,6 +787,14 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	s.hRadFit = mk(L"BUTTON", T(L"\uC6A9\uC9C0\uC5D0 \uB9DE\uCDA4", L"Fit to page"), WS_GROUP | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 32, 378, 140, 22, ID_RAD_FIT);
 	s.hRadAct = mk(L"BUTTON", T(L"\uC2E4\uC81C \uD06C\uAE30", L"Actual size"), BS_AUTORADIOBUTTON, 0, 176, 378, 120, 22, ID_RAD_ACT);
 
+	s.hRadPoster = mk(L"BUTTON", T(L"\uD3EC\uC2A4\uD130 \uBD84\uD560", L"Poster tiles"), BS_AUTORADIOBUTTON, 0, 32, 412, 130, 22, ID_RAD_POSTER);
+	s.hEdCols = mk(L"EDIT", L"2", WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_CENTER | ES_MULTILINE, 0, 176, 410, 56, 26, ID_ED_COLS);
+	s.hEdRows = mk(L"EDIT", L"2", WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_CENTER | ES_MULTILINE, 0, 266, 410, 56, 26, ID_ED_ROWS);
+	SendMessageW(s.hEdCols, EM_LIMITTEXT, 2, 0);
+	SendMessageW(s.hEdRows, EM_LIMITTEXT, 2, 0);
+	EnableWindow(s.hEdCols, FALSE);
+	EnableWindow(s.hEdRows, FALSE);
+
 	SendMessageW(s.hRadAll, BM_SETCHECK, BST_CHECKED, 0);
 	SendMessageW(s.hRadAuto, BM_SETCHECK, BST_CHECKED, 0);
 	SendMessageW(s.hRadFit, BM_SETCHECK, BST_CHECKED, 0);
@@ -740,7 +813,7 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 		HGDIOBJ oldF = SelectObject(tdc, s.font);
 		TEXTMETRICW tm{}; GetTextMetricsW(tdc, &tm);
 		SelectObject(tdc, oldF); ReleaseDC(h, tdc);
-		for (HWND ed : { s.hEdCopies, s.hEdFrom, s.hEdTo })
+		for (HWND ed : { s.hEdCopies, s.hEdFrom, s.hEdTo, s.hEdCols, s.hEdRows })
 		{
 			RECT er; GetClientRect(ed, &er);
 			int top = std::max(0, (int)(er.bottom - tm.tmHeight) / 2);

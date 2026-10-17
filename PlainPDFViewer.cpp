@@ -2728,6 +2728,73 @@ static void PrintDocument(HWND hWnd)
             continue;
         }
 
+        if (pdr.poster)
+        {
+            const int cols = std::clamp(pdr.posterCols, 1, 10);
+            const int rows = std::clamp(pdr.posterRows, 1, 10);
+            const int ovX = (int)(POSTER_OVERLAP_MM / 25.4 * dpiX);
+            const int ovY = (int)(POSTER_OVERLAP_MM / 25.4 * dpiY);
+            const int stepX = std::max(1, printW - ovX);
+            const int stepY = std::max(1, printH - ovY);
+            const double totW = (double)stepX * (cols - 1) + printW;
+            const double totH = (double)stepY * (rows - 1) + printH;
+            const double baseW = pdfW * dpiX / 72.0, baseH = pdfH * dpiY / 72.0;
+            const double sc = std::min(totW / baseW, totH / baseH);
+            const int fullW = std::max(1, (int)(baseW * sc));
+            const int fullH = std::max(1, (int)(baseH * sc));
+            const int cx = (int)((totW - fullW) / 2.0);
+            const int cy = (int)((totH - fullH) / 2.0);
+            const int markLen = std::max(8, dpiX / 4);
+
+            for (int r = 0; r < rows; ++r)
+            {
+                for (int c = 0; c < cols; ++c)
+                {
+                    FPDF_BITMAP tile = FPDFBitmap_Create(printW, printH, 0);
+                    if (!tile) continue;
+                    FPDFBitmap_FillRect(tile, 0, 0, printW, printH, 0xFFFFFFFF);
+                    FPDF_RenderPageBitmap(tile, page, cx - c * stepX, cy - r * stepY, fullW, fullH, g_rotation,
+                        FPDF_ANNOT | FPDF_LCD_TEXT | FPDF_PRINTING);
+
+                    BYTE* buf = reinterpret_cast<BYTE*>(FPDFBitmap_GetBuffer(tile));
+                    const size_t stride = (size_t)FPDFBitmap_GetStride(tile);
+                    auto px = [&](int x, int y) {
+                        if (x < 0 || y < 0 || x >= printW || y >= printH) return;
+                        BYTE* p = buf + (size_t)y * stride + (size_t)x * 4;
+                        p[0] = p[1] = p[2] = 0x40; p[3] = 0xFF;
+                    };
+                    std::vector<int> xs, ys;
+                    if (c > 0) xs.push_back(ovX);
+                    if (c < cols - 1) xs.push_back(printW - ovX);
+                    if (r > 0) ys.push_back(ovY);
+                    if (r < rows - 1) ys.push_back(printH - ovY);
+                    for (int x : xs)
+                        for (int t = 0; t < markLen; ++t)
+                        {
+                            px(x, t); px(x, printH - 1 - t);
+                        }
+                    for (int y : ys)
+                        for (int t = 0; t < markLen; ++t)
+                        {
+                            px(t, y); px(printW - 1 - t, y);
+                        }
+
+                    PrintJobPage pg;
+                    pg.renderW = printW;
+                    pg.renderH = printH;
+                    pg.offsetX = 0;
+                    pg.offsetY = 0;
+                    pg.pixels.resize((size_t)printW * printH * 4);
+                    for (int row = 0; row < printH; ++row)
+                        memcpy(pg.pixels.data() + (size_t)row * printW * 4, buf + row * stride, (size_t)printW * 4);
+                    job->pages.push_back(std::move(pg));
+                    FPDFBitmap_Destroy(tile);
+                }
+            }
+            FPDF_ClosePage(page);
+            continue;
+        }
+
         double scaleX = (double)printW / (pdfW * dpiX / 72.0);
         double scaleY = (double)printH / (pdfH * dpiY / 72.0);
         double scale  = pdr.fitToPage ? std::min(scaleX, scaleY) : 1.0;
