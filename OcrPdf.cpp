@@ -21,8 +21,10 @@
 #include <objidl.h>
 #include <gdiplus.h>
 #include <dwmapi.h>
+#if !defined(_M_ARM64)
 #include <tesseract/baseapi.h>
 #include <tesseract/resultiterator.h>
+#endif
 
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -38,6 +40,13 @@
 #pragma comment(lib, "secur32.lib")
 #pragma comment(lib, "advapi32.lib")
 
+#if defined(_M_ARM64)
+// ARM64: Tesseract(vcpkg) 미지원 - OCR 비활성
+void OcrCurrentDocument(HWND parent)
+{
+    MessageBoxW(parent, L"OCR is not supported on ARM64 builds.", L"OCR", MB_OK | MB_ICONINFORMATION);
+}
+#else
 extern std::mutex g_pdfiumMtx;
 
 namespace
@@ -480,3 +489,4 @@ void OcrCurrentDocument(HWND parent)
 									  L"OCR завершён.\nСохранено в: ")) + outPath;
 	Msg(parent, msg.c_str(), MB_ICONINFORMATION);
 }
+#endif // !_M_ARM64
