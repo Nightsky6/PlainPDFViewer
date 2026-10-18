@@ -33,6 +33,13 @@
     <RootNamespace>PlainPDFViewer</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Platform)'=='x64'">
+    <VcpkgEnabled>true</VcpkgEnabled>
+    <VcpkgEnableManifest>false</VcpkgEnableManifest>
+    <VcpkgTriplet>x64-windows-static-md</VcpkgTriplet>
+    <VcpkgRoot>C:\vcpkg\</VcpkgRoot>
+    <VcpkgInstalledDir>C:\vcpkg\installed\</VcpkgInstalledDir>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -159,7 +166,7 @@
       <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\bin\pdfium.dll" "$(OutDir)"</Command>
+      <Command>xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\bin\pdfium.dll" "$(OutDir)"&amp;xcopy /Y /D /I "$(MSBuildProjectDirectory)\tessdata\*.traineddata" "$(OutDir)tessdata\"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -174,7 +181,7 @@
       <AdditionalDependencies>pdfium.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\bin\pdfium.dll" "$(OutDir)"</Command>
+      <Command>xcopy /Y /D "$(MSBuildProjectDirectory)\third_party\pdfium\bin\pdfium.dll" "$(OutDir)"&amp;xcopy /Y /D /I "$(MSBuildProjectDirectory)\tessdata\*.traineddata" "$(OutDir)tessdata\"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
@@ -223,6 +230,7 @@
     <ClInclude Include="ConfirmDialog.h" />
     <ClInclude Include="DocPropertiesDialog.h" />
     <ClInclude Include="ExportImage.h" />
+    <ClInclude Include="OcrPdf.h" />
     <ClInclude Include="GroupPanel.h" />
     <ClInclude Include="KeywordDialog.h" />
     <ClInclude Include="FindBar.h" />
@@ -262,6 +270,7 @@
     <ClCompile Include="ConfirmDialog.cpp" />
     <ClCompile Include="DocPropertiesDialog.cpp" />
     <ClCompile Include="ExportImage.cpp" />
+    <ClCompile Include="OcrPdf.cpp" />
     <ClCompile Include="GroupPanel.cpp" />
     <ClCompile Include="KeywordDialog.cpp" />
     <ClCompile Include="FindBar.cpp" />
@@ -325,10 +334,12 @@
     <Image Include="width.png" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="OcrPopupUi.h" />
     <None Include="PrintDialogStr.inc" />
     <None Include="README.md" />
     <None Include="SyncVersion.ps1" />
     <None Include="THIRD_PARTY_NOTICES.md" />
+    <None Include="_patch.ps1" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
@@ -352,5 +363,9 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="ei_mid.txt" />
+    <Text Include="patch_ocr.txt" />
+    <Text Include="_blk1.txt" />
+    <Text Include="_blk2.txt" />
+    <Text Include="_blk3.txt" />
   </ItemGroup>
 </Project>

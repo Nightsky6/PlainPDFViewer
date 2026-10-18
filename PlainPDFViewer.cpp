@@ -17,6 +17,7 @@
 #include "PrintDialog.h"
 #include "PdfCompress.h"
 #include "ExportImage.h"
+#include "OcrPdf.h"
 #include "Toolbar.h"
 #include "FindBar.h"
 #include "WindowsOps.h"
@@ -9462,6 +9463,8 @@ static void UpdateMenuLanguage(HWND hWnd)
                                          L"Comprimir PDF(&C)...", L"Compresser le PDF(&C)...", L"PDF komprimieren(&C)...", L"Comprimir PDF(&C)...", L"\u0421\u0436\u0430\u0442\u044C PDF(&C)..."));
     SetItem(hFile, IDM_EXPORT_IMAGE, (::LS)(L"이미지로 내보내기(&E)...", L"Export as Image(&E)...", L"画像として書き出し(&E)...", L"导出为图像(&E)...",
                                          L"Exportar como imagen(&E)...", L"Exporter en image(&E)...", L"Als Bild exportieren(&E)...", L"Exportar como imagem(&E)...", L"Экспорт в изображение(&E)..."));
+    SetItem(hFile, IDM_OCR, (::LS)(L"OCR (검색 가능한 PDF로 저장)(&O)...", L"OCR (Save as Searchable PDF)(&O)...", L"OCR (検索可能なPDFとして保存)(&O)...", L"OCR (另存为可搜索 PDF)(&O)...",
+                                         L"OCR (guardar como PDF con búsqueda)(&O)...", L"OCR (enregistrer en PDF consultable)(&O)...", L"OCR (als durchsuchbares PDF speichern)(&O)...", L"OCR (salvar como PDF pesquisável)(&O)...", L"OCR (сохранить как PDF с поиском)(&O)..."));
     SetItem(hFile, IDM_PROPERTIES,  LS(STR_MENU_PROPS));
     SetItem(hFile, IDM_EXIT,        LS(STR_MENU_EXIT));
 
@@ -9903,6 +9906,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case IDM_PRINT:      PrintDocument(hWnd);                                        break;
         case IDM_COMPRESS:   ShowCompressPdfDialog(hWnd, g_filePath);                    break;
         case IDM_EXPORT_IMAGE: ExportPagesAsImages(hWnd);                                break;
+        case IDM_OCR:        OcrCurrentDocument(hWnd);                                   break;
         case IDM_PROPERTIES: DocPropertiesDialog::Show(hWnd, g_pdfDoc, g_filePath, g_pageCount); break;
         case IDM_REDACT:
         {

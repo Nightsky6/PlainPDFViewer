@@ -475,7 +475,7 @@ void ExportPagesAsImages(HWND parent, int initialPage)
 			if (jpeg)
 			{
 				ULONG q = 92;
-				Gdiplus::EncoderParameters ep;
+				Gdiplus::EncoderParameters ep = {};
 				ep.Count = 1;
 				ep.Parameter[0].Guid = Gdiplus::EncoderQuality;
 				ep.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;

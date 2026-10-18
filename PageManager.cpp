@@ -520,7 +520,7 @@ static void PmPaint(HWND hDlg, PageMgrState* s)
         WCHAR label[64];
         if (isExt && s->order[i].docIdx - 1 < (int)s->extraPaths.size()) {
             // 파일명만 추출해 표시
-            const std::wstring& ep = s->extraPaths[s->order[i].docIdx - 1];
+            const std::wstring& ep = s->extraPaths[static_cast<size_t>(s->order[i].docIdx) - 1];
             size_t slash = ep.find_last_of(L"\\/");
             std::wstring fname = (slash != std::wstring::npos) ? ep.substr(slash + 1) : ep;
             // 확장자 제거
@@ -644,7 +644,7 @@ static LRESULT CALLBACK PageMgrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARA
         s->thumbs.resize(s->order.size(), nullptr);
         for (int i = 0; i < (int)s->order.size(); ++i) {
             FPDF_DOCUMENT doc = (s->order[i].docIdx == 0) ? g_pdfDoc
-                              : s->extraDocs[s->order[i].docIdx - 1];
+                              : s->extraDocs[static_cast<size_t>(s->order[i].docIdx) - 1];
             s->thumbs[i] = RenderThumb(doc, s->order[i].pageIdx, s->thumbW, s->thumbH);
         }
 
@@ -664,7 +664,7 @@ static LRESULT CALLBACK PageMgrDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARA
         for (int i = 0; i < (int)s->thumbs.size(); ++i) {
             if (s->thumbs[i]) { DeleteObject(s->thumbs[i]); s->thumbs[i] = nullptr; }
             FPDF_DOCUMENT doc = (s->order[i].docIdx == 0) ? g_pdfDoc
-                              : s->extraDocs[s->order[i].docIdx - 1];
+                              : s->extraDocs[static_cast<size_t>(s->order[i].docIdx) - 1];
             s->thumbs[i] = RenderThumb(doc, s->order[i].pageIdx, s->thumbW, s->thumbH);
         }
         InvalidateRect(hDlg, nullptr, FALSE);
@@ -1027,7 +1027,7 @@ void ShowPageManager(HWND hWnd)
     bool importOk = true;
     for (int i = 0; i < (int)s.order.size(); ++i) {
         const PageEntry& pe = s.order[i];
-        FPDF_DOCUMENT fromDoc = (pe.docIdx == 0) ? srcDoc : saveDocs[pe.docIdx - 1];
+        FPDF_DOCUMENT fromDoc = (pe.docIdx == 0) ? srcDoc : saveDocs[static_cast<size_t>(pe.docIdx) - 1];
         if (!fromDoc) { importOk = false; break; }
         int indices[1] = { pe.pageIdx };
         if (!FPDF_ImportPagesByIndex(newDoc, fromDoc, indices, 1, i)) { importOk = false; break; }

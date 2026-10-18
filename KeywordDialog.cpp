@@ -251,7 +251,8 @@ static LRESULT CALLBACK KwWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam
                 ApplyKeywordHighlights(GetParent(hWnd));
             }}
             InvalidateBtns(hWnd);
-            int sel=(int)SendMessageW(g_kwList,LB_GETCURSEL,0,0);
+        }else if(PtInRect(&rd2,pt)){
+            int sel=g_kwList?(int)SendMessageW(g_kwList,LB_GETCURSEL,0,0):-1;
             if(sel>=0&&sel<(int)g_keywordList.size()){g_keywordList.erase(g_keywordList.begin()+sel);RefreshList();
                 ApplyKeywordHighlights(GetParent(hWnd));
                 InvalidateBtns(hWnd);}

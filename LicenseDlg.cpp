@@ -154,7 +154,39 @@ INT_PTR CALLBACK LicenseDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
             L"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n"
             L"Copyright (C) 2002-2023 Communications and Remote Sensing Laboratory.\r\n"
             L"BSD 2-Clause License.\r\n"
-            L"https://www.openjpeg.org/\r\n";
+            L"https://www.openjpeg.org/\r\n"
+            L"\r\n"
+            L"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n"
+            L"Tesseract OCR\r\n"
+            L"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n"
+            L"Copyright (C) Ray Smith, Google Inc., and contributors.\r\n"
+            L"Apache License 2.0.\r\n"
+            L"https://github.com/tesseract-ocr/tesseract\r\n"
+            L"\r\n"
+            L"Language data: tessdata_best (Apache License 2.0).\r\n"
+            L"https://github.com/tesseract-ocr/tessdata_best\r\n"
+            L"\r\n"
+            L"Licensed under the Apache License, Version 2.0 (the \"License\");\r\n"
+            L"you may not use this file except in compliance with the License.\r\n"
+            L"You may obtain a copy of the License at\r\n"
+            L"https://www.apache.org/licenses/LICENSE-2.0\r\n"
+            L"\r\n"
+            L"Unless required by applicable law or agreed to in writing, software\r\n"
+            L"distributed under the License is distributed on an \"AS IS\" BASIS,\r\n"
+            L"WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\r\n"
+            L"\r\n"
+            L"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n"
+            L"Leptonica\r\n"
+            L"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n"
+            L"Copyright (C) 2001 Leptonica. All rights reserved.\r\n"
+            L"BSD 2-Clause License.\r\n"
+            L"http://www.leptonica.org/\r\n"
+            L"\r\n"
+            L"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n"
+            L"libpng, libtiff, giflib, libwebp\r\n"
+            L"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n"
+            L"Image codecs linked statically through Leptonica.\r\n"
+            L"libpng License / libtiff License / MIT (giflib) / BSD 3-Clause (libwebp).\r\n";
 
         std::wstring licenseText = LS(STR_LIC_APP_NAME);
         licenseText += L"Copyright (C) 2026\r\n\r\n";
@@ -260,23 +292,33 @@ INT_PTR CALLBACK LicenseDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
             {
                 DWORD sz = SizeofResource(GetModuleHandleW(nullptr), hRes);
                 HGLOBAL hMem = LoadResource(GetModuleHandleW(nullptr), hRes);
-                void* pData2 = LockResource(hMem);
-                if (pData2)
+                void* pData2 = hMem ? LockResource(hMem) : nullptr;
+                if (pData2 && sz > 0)
                 {
                     HGLOBAL hBuf = GlobalAlloc(GMEM_MOVEABLE, sz);
-                    void* pBuf = GlobalLock(hBuf);
-                    memcpy(pBuf, pData2, sz);
-                    GlobalUnlock(hBuf);
-
-                    IStream* pStream = nullptr;
-                    CreateStreamOnHGlobal(hBuf, TRUE, &pStream);
-                    if (pStream)
+                    void* pBuf = hBuf ? GlobalLock(hBuf) : nullptr;
+                    if (pBuf)
                     {
-                        Gdiplus::Graphics gfx(hdc);
-                        gfx.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-                        Gdiplus::Image img(pStream);
-                        gfx.DrawImage(&img, iconX, iconY, iconSize, iconSize);
-                        pStream->Release();
+                        memcpy(pBuf, pData2, sz);
+                        GlobalUnlock(hBuf);
+
+                        IStream* pStream = nullptr;
+                        if (SUCCEEDED(CreateStreamOnHGlobal(hBuf, TRUE, &pStream)) && pStream)
+                        {
+                            Gdiplus::Graphics gfx(hdc);
+                            gfx.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                            Gdiplus::Image img(pStream);
+                            gfx.DrawImage(&img, iconX, iconY, iconSize, iconSize);
+                            pStream->Release();
+                        }
+                        else
+                        {
+                            GlobalFree(hBuf);
+                        }
+                    }
+                    else if (hBuf)
+                    {
+                        GlobalFree(hBuf);
                     }
                 }
             }

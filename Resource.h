@@ -135,6 +135,7 @@
 #define IDM_SET_DEFAULT_PDF     32841
 #define IDM_COMPRESS            32853
 #define IDM_EXPORT_IMAGE        33100
+#define IDM_OCR                 33101
 #define IDM_TOGGLE_TOOLBAR      32860
 #define IDM_LANG_0              32844
 #define IDM_LANG_1              32845
