@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_ZH      L"显示语言"
 #define STR_PREF_BTN_OK_ZH          L"确定"
 #define STR_PREF_BTN_CANCEL_ZH      L"取消"
+#define STR_PREF_SEC_ANNOT_ZH       L"批注"
+#define STR_PREF_SEL_TOOLBAR_ZH     L"选择文本后显示批注工具"
 #define STR_FIND_NO_RESULT_ZH       L" 无结果 "
 #define STR_FIND_CASE_ZH            L"区分大小写"
 #define STR_SIG_IMG_FILTER_ZH       L"图像文件\0*.png;*.jpg;*.jpeg;*.bmp\0所有文件\0*.*\0"

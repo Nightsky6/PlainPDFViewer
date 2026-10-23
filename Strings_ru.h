@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_RU      L"Язык интерфейса"
 #define STR_PREF_BTN_OK_RU          L"ОК"
 #define STR_PREF_BTN_CANCEL_RU      L"Отмена"
+#define STR_PREF_SEC_ANNOT_RU       L"Аннотации"
+#define STR_PREF_SEL_TOOLBAR_RU     L"Показывать инструменты аннотаций после выделения текста"
 #define STR_FIND_NO_RESULT_RU       L" Нет результатов "
 #define STR_FIND_CASE_RU            L"Учитывать регистр"
 #define STR_SIG_IMG_FILTER_RU       L"Файлы изображений\0*.png;*.jpg;*.jpeg;*.bmp\0Все файлы\0*.*\0"

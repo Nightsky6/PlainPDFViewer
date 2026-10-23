@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_FR      L"Langue d'affichage"
 #define STR_PREF_BTN_OK_FR          L"OK"
 #define STR_PREF_BTN_CANCEL_FR      L"Annuler"
+#define STR_PREF_SEC_ANNOT_FR       L"Annotations"
+#define STR_PREF_SEL_TOOLBAR_FR     L"Afficher les outils d'annotation après la sélection"
 #define STR_FIND_NO_RESULT_FR       L" Aucun résultat "
 #define STR_FIND_CASE_FR            L"Respecter la casse"
 #define STR_SIG_IMG_FILTER_FR       L"Fichiers image\0*.png;*.jpg;*.jpeg;*.bmp\0Tous les fichiers\0*.*\0"

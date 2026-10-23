@@ -20,6 +20,7 @@
 #include "OcrPdf.h"
 #include "Toolbar.h"
 #include "FindBar.h"
+#include "SelToolbar.h"
 #include "WindowsOps.h"
 #include "Lang.h"
 #include <fpdfview.h>
@@ -9818,8 +9819,54 @@ static void SidebarToggleAnimated(HWND hWnd, bool close, SidebarTab tab)
     }
 }
 
+// ─── 텍스트 선택 주석 도구 모음 ──────────────────────────────────────────────
+
+static const COLORREF kSelToolbarPalette[] = {
+    ANNOT_COLOR_YELLOW, ANNOT_COLOR_GREEN, ANNOT_COLOR_BLUE, ANNOT_COLOR_ORANGE,
+    ANNOT_COLOR_PINK, ANNOT_COLOR_LAVENDER, ANNOT_COLOR_EMERALD, ANNOT_COLOR_SLATE,
+};
+
+static void OnSelToolbarAction(HWND hWnd, SelToolbar::Action action, COLORREF color)
+{
+    if (!g_hasSelection) return;
+    switch (action)
+    {
+    case SelToolbar::Action::Highlight: AddHighlightFromSelection(color); break;
+    case SelToolbar::Action::Underline: AddUnderlineFromSelection(color); break;
+    case SelToolbar::Action::Strikeout: AddStrikeoutFromSelection(color); break;
+    case SelToolbar::Action::Squiggly:  AddSquigglyFromSelection(color);  break;
+    case SelToolbar::Action::Copy:      CopySelectionToClipboard(hWnd);   break;
+    }
+    InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+static void ShowSelToolbarAt(HWND hWnd, int clientX, int clientY)
+{
+    POINT pt = { clientX, clientY };
+    ClientToScreen(hWnd, &pt);
+    SelToolbar::Show(hWnd, pt, kSelToolbarPalette, (int)_countof(kSelToolbarPalette), OnSelToolbarAction);
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    // 선택 주석 도구 모음은 다른 클릭·스크롤·키 입력·명령·창 이동이 있으면 닫는다
+    switch (message)
+    {
+    case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+    case WM_MOUSEWHEEL:  case WM_MOUSEHWHEEL:
+    case WM_VSCROLL:     case WM_HSCROLL:
+    case WM_COMMAND:     case WM_SIZE:        case WM_MOVE:
+        SelToolbar::Hide();
+        break;
+    case WM_KEYDOWN:
+        if (wParam != VK_CONTROL && wParam != VK_SHIFT && wParam != VK_MENU)
+            SelToolbar::Hide();
+        break;
+    case WM_ACTIVATEAPP:
+        if (!wParam) SelToolbar::Hide();
+        break;
+    }
+
     switch (message)
     {
     case WM_CREATE:
@@ -12593,6 +12640,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             // 하이라이트 모드: 선택 완료 즉시 하이라이트 적용
             if (g_hasSelection && g_highlightMode)
                 AddHighlightFromSelection(g_highlightColor);
+            else if (g_hasSelection && g_prefs.showSelToolbar)
+                ShowSelToolbarAt(hWnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             InvalidateRect(hWnd, nullptr, FALSE);
         }
 

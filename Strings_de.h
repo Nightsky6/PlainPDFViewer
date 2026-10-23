@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_DE      L"Anzeigesprache"
 #define STR_PREF_BTN_OK_DE          L"OK"
 #define STR_PREF_BTN_CANCEL_DE      L"Abbrechen"
+#define STR_PREF_SEC_ANNOT_DE       L"Anmerkungen"
+#define STR_PREF_SEL_TOOLBAR_DE     L"Anmerkungswerkzeuge nach Textauswahl anzeigen"
 #define STR_FIND_NO_RESULT_DE       L" Keine Ergebnisse "
 #define STR_FIND_CASE_DE            L"Groß-/Kleinschreibung beachten"
 #define STR_SIG_IMG_FILTER_DE       L"Bilddateien\0*.png;*.jpg;*.jpeg;*.bmp\0Alle Dateien\0*.*\0"

@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_KO      L"표시 언어"
 #define STR_PREF_BTN_OK_KO          L"확인"
 #define STR_PREF_BTN_CANCEL_KO      L"취소"
+#define STR_PREF_SEC_ANNOT_KO       L"주석"
+#define STR_PREF_SEL_TOOLBAR_KO     L"텍스트 선택 후 주석 도구 보이기"
 #define STR_FIND_NO_RESULT_KO       L" 결과 없음 "
 #define STR_FIND_CASE_KO            L"대소문자 구분"
 #define STR_SIG_IMG_FILTER_KO       L"이미지 파일\0*.png;*.jpg;*.jpeg;*.bmp\0모든 파일\0*.*\0"

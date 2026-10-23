@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_JA      L"表示言語"
 #define STR_PREF_BTN_OK_JA          L"OK"
 #define STR_PREF_BTN_CANCEL_JA      L"キャンセル"
+#define STR_PREF_SEC_ANNOT_JA       L"注釈"
+#define STR_PREF_SEL_TOOLBAR_JA     L"テキスト選択後に注釈ツールを表示"
 #define STR_FIND_NO_RESULT_JA       L" 見つかりません "
 #define STR_FIND_CASE_JA            L"大文字小文字を区別"
 #define STR_SIG_IMG_FILTER_JA       L"画像ファイル\0*.png;*.jpg;*.jpeg;*.bmp\0すべてのファイル\0*.*\0"

@@ -20,6 +20,7 @@ struct AppPreferences
     COLORREF selectionColor = RGB(51, 144, 255); // 텍스트 선택 색상
     float    scrollSpeed    = 1.0f;              // 자동 스크롤 속도 (0.3 ~ 3.0 px/tick)
     int      maxRecentFiles = 5;                 // 최근 파일 목록 개수 (1 ~ 10)
+    bool     showSelToolbar = false;             // 텍스트 선택 후 주석 도구 모음 표시
 };
 
 // ─── 전역 설정 인스턴스 ───────────────────────────────────────────────────────

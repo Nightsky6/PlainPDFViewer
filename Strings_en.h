@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_EN      L"Display Language"
 #define STR_PREF_BTN_OK_EN          L"OK"
 #define STR_PREF_BTN_CANCEL_EN      L"Cancel"
+#define STR_PREF_SEC_ANNOT_EN       L"Annotations"
+#define STR_PREF_SEL_TOOLBAR_EN     L"Show annotation tools after selecting text"
 #define STR_FIND_NO_RESULT_EN       L" No results "
 #define STR_FIND_CASE_EN            L"Match case"
 #define STR_SIG_IMG_FILTER_EN       L"Image Files\0*.png;*.jpg;*.jpeg;*.bmp\0All Files\0*.*\0"

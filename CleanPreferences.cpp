@@ -27,7 +27,7 @@ namespace
 {
     // 창 크기
     constexpr int  DLG_W      = 440;
-    constexpr int  DLG_H      = 610;
+    constexpr int  DLG_H      = 650;
 
     // 색상
     constexpr COLORREF C_BG        = RGB(247, 248, 250); // 전체 배경
@@ -57,6 +57,10 @@ namespace
     constexpr int STEP_BTN    = 30;
     constexpr int STEP_VAL    = 40;
     constexpr int STEP_H      = 32;
+    constexpr int TOGGLE_W    = 40;
+    constexpr int TOGGLE_H    = 22;
+    constexpr UINT_PTR TOGGLE_TIMER = 1;
+    constexpr double   TOGGLE_MS    = 160.0;
 
     const wchar_t* PREF_CLASS = L"CleanPreferencesClass";
     bool g_classRegistered    = false;
@@ -91,10 +95,15 @@ namespace
         RECT  minusRc{};                 // 스테퍼 - 버튼
         RECT  plusRc{};                  // 스테퍼 + 버튼
         RECT  stepValRc{};               // 스테퍼 값 영역
+        RECT  toggleRc{};                // 주석 도구 토글 스위치
         bool  dragSlider = false;
         bool  minusHot   = false;
         bool  plusHot    = false;
         bool  sliderHot  = false;
+        bool  toggleHot  = false;
+        float toggleAnim = 0.0f;         // 토글 표시 위치 (0 = 꺼짐, 1 = 켜짐)
+        float toggleFrom = 0.0f;         // 애니메이션 시작 위치
+        ULONGLONG toggleStart = 0;       // 애니메이션 시작 시각
 
 
         // 커스텀 버튼
@@ -200,6 +209,12 @@ namespace
         g_ps.minusRc   = { stepX, stepY, stepX + STEP_BTN, stepY + STEP_H };
         g_ps.stepValRc = { stepX + STEP_BTN, stepY, stepX + STEP_BTN + STEP_VAL, stepY + STEP_H };
         g_ps.plusRc    = { stepX + STEP_BTN + STEP_VAL, stepY, stepX + STEP_BTN * 2 + STEP_VAL, stepY + STEP_H };
+
+        // ── 카드 5: 주석 ──
+        int c5y = c4y + cardH + CARD_GAP;
+        int tglX = cardX + cardW - CARD_PAD - TOGGLE_W;
+        int tglY = c5y + CARD_PAD + (ROW_H - TOGGLE_H) / 2;
+        g_ps.toggleRc = { tglX, tglY, tglX + TOGGLE_W, tglY + TOGGLE_H };
 
         // ── 확인 / 취소 버튼 ──
         int btnY  = DLG_H - MARGIN - BTN_H;
@@ -396,6 +411,46 @@ namespace
             g.DrawString(rv, -1, &stValFont, RectF((float)g_ps.stepValRc.left, (float)g_ps.stepValRc.top, (float)STEP_VAL, (float)STEP_H), &cf, &labelBr);
         }
 
+        // ── 카드 5: 주석 ──
+        int c5y = c4y + c4h + CARD_GAP, c5h = cardH;
+        DrawCard(c5y, c5h);
+
+        {
+            RectF r1((float)secX, (float)(c5y - SEC_H), 120.0f, (float)SEC_H);
+            StringFormat sfSec4; sfSec4.SetLineAlignment(StringAlignmentCenter);
+            g.DrawString(LS(STR_PREF_SEC_ANNOT), -1, &secFont, r1, &sfSec4, &secBr);
+
+            // 레이블이 긴 언어는 두 줄로 줄바꿈되도록 행 높이 전체를 사용
+            float lblW = (float)(g_ps.toggleRc.left - 12 - secX);
+            RectF r2((float)secX, (float)(c5y + CARD_PAD), lblW, (float)ROW_H);
+            StringFormat sfLbl; sfLbl.SetLineAlignment(StringAlignmentCenter);
+            g.DrawString(LS(STR_PREF_SEL_TOOLBAR), -1, &labelFont, r2, &sfLbl, &labelBr);
+
+            // 토글 스위치
+            const float p = g_ps.toggleAnim;   // 0 = 꺼짐, 1 = 켜짐 (애니메이션 중간값 포함)
+            const RECT& tr = g_ps.toggleRc;
+            RectF tRc((float)tr.left + 0.5f, (float)tr.top + 0.5f,
+                      (float)(tr.right - tr.left) - 1.0f, (float)(tr.bottom - tr.top) - 1.0f);
+            GraphicsPath* tp = RoundRectPath(tRc, tRc.Height * 0.5f);
+            COLORREF trackOn  = g_ps.toggleHot ? C_BTN_PRI_H : C_BTN_PRI;
+            COLORREF trackOff = g_ps.toggleHot ? RGB(178, 181, 188) : RGB(196, 199, 205);
+            auto lerpC = [p](int a, int b) { return (BYTE)(a + (b - a) * p + 0.5f); };
+            SolidBrush trackBr(Gdiplus::Color(255,
+                lerpC(GetRValue(trackOff), GetRValue(trackOn)),
+                lerpC(GetGValue(trackOff), GetGValue(trackOn)),
+                lerpC(GetBValue(trackOff), GetBValue(trackOn))));
+            g.FillPath(&trackBr, tp);
+            delete tp;
+            const float knobD = tRc.Height - 6.0f;
+            const float knobOffX = tRc.X + 3.0f;
+            const float knobOnX  = tRc.X + tRc.Width - 3.0f - knobD;
+            const float knobX = knobOffX + (knobOnX - knobOffX) * p;
+            SolidBrush knobShadow(Gdiplus::Color(40, 0, 0, 0));
+            g.FillEllipse(&knobShadow, knobX, tRc.Y + 3.0f + 1.0f, knobD, knobD);
+            SolidBrush knobBr(GdipColor(RGB(255, 255, 255)));
+            g.FillEllipse(&knobBr, knobX, tRc.Y + 3.0f, knobD, knobD);
+        }
+
         // ── 구분선 ──
         Pen sepPen(GdipColor(C_BORDER), 1.0f);
         g.DrawLine(&sepPen,
@@ -477,6 +532,19 @@ namespace
         case WM_ERASEBKGND:
             return 1;
 
+        case WM_TIMER:
+            if (wParam == TOGGLE_TIMER)
+            {
+                const double t = std::min(1.0, (double)(GetTickCount64() - g_ps.toggleStart) / TOGGLE_MS);
+                const double e = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);   // ease-out cubic
+                const float target = g_ps.work.showSelToolbar ? 1.0f : 0.0f;
+                g_ps.toggleAnim = g_ps.toggleFrom + (target - g_ps.toggleFrom) * (float)e;
+                if (t >= 1.0) KillTimer(hWnd, TOGGLE_TIMER);
+                InvalidateRect(hWnd, &g_ps.toggleRc, FALSE);
+                return 0;
+            }
+            break;
+
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
@@ -542,9 +610,10 @@ namespace
                 bool ph = PtInRect(&g_ps.plusRc,  pt) != FALSE;
                 RECT sr = g_ps.sliderRc; InflateRect(&sr, 0, 4);
                 bool sh = PtInRect(&sr, pt) != FALSE;
-                if (mh != g_ps.minusHot || ph != g_ps.plusHot || sh != g_ps.sliderHot) {
-                    g_ps.minusHot = mh; g_ps.plusHot = ph; g_ps.sliderHot = sh;
-                    SetCursor((mh || ph || sh) ? curHand : curArrow);
+                bool th = PtInRect(&g_ps.toggleRc, pt) != FALSE;
+                if (mh != g_ps.minusHot || ph != g_ps.plusHot || sh != g_ps.sliderHot || th != g_ps.toggleHot) {
+                    g_ps.minusHot = mh; g_ps.plusHot = ph; g_ps.sliderHot = sh; g_ps.toggleHot = th;
+                    SetCursor((mh || ph || sh || th) ? curHand : curArrow);
                     repaint = true;
                 }
                 if (g_ps.dragSlider) {
@@ -561,6 +630,7 @@ namespace
                 InvalidateRect(hWnd, &g_ps.minusRc, FALSE);
                 InvalidateRect(hWnd, &g_ps.plusRc, FALSE);
                 InvalidateRect(hWnd, &g_ps.stepValRc, FALSE);
+                InvalidateRect(hWnd, &g_ps.toggleRc,  FALSE);
                 InvalidateRect(hWnd, &g_ps.colorBtn.rc,  FALSE);
                 InvalidateRect(hWnd, &g_ps.okBtn.rc,     FALSE);
                 InvalidateRect(hWnd, &g_ps.cancelBtn.rc, FALSE);
@@ -570,8 +640,9 @@ namespace
 
         case WM_MOUSELEAVE:
             g_ps.colorBtn.hovered = g_ps.okBtn.hovered = g_ps.cancelBtn.hovered = false;
-            g_ps.minusHot = g_ps.plusHot = g_ps.sliderHot = false;
+            g_ps.minusHot = g_ps.plusHot = g_ps.sliderHot = g_ps.toggleHot = false;
             InvalidateRect(hWnd, &g_ps.sliderRc, FALSE);
+            InvalidateRect(hWnd, &g_ps.toggleRc, FALSE);
             InvalidateRect(hWnd, &g_ps.minusRc,  FALSE);
             InvalidateRect(hWnd, &g_ps.plusRc,   FALSE);
             InvalidateRect(hWnd, &g_ps.colorBtn.rc,  FALSE);
@@ -596,6 +667,13 @@ namespace
                 }
                 if (PtInRect(&g_ps.minusRc, pt) && g_ps.recentVal > 1)  { --g_ps.recentVal; InvalidateRect(hWnd, nullptr, FALSE); }
                 if (PtInRect(&g_ps.plusRc,  pt) && g_ps.recentVal < 10) { ++g_ps.recentVal; InvalidateRect(hWnd, nullptr, FALSE); }
+                if (PtInRect(&g_ps.toggleRc, pt)) {
+                    // 값은 즉시 바꾸고, 노브·색상은 현재 위치에서 새 위치로 부드럽게 이동
+                    g_ps.work.showSelToolbar = !g_ps.work.showSelToolbar;
+                    g_ps.toggleFrom  = g_ps.toggleAnim;
+                    g_ps.toggleStart = GetTickCount64();
+                    SetTimer(hWnd, TOGGLE_TIMER, 10, nullptr);
+                }
             }
             return 0;
         }
@@ -676,14 +754,16 @@ namespace
                     !PtInRect(&g_ps.cancelBtn.rc,  pt) &&
                     !PtInRect(&g_ps.sliderRc, pt) &&
                     !PtInRect(&g_ps.minusRc,  pt) &&
-                    !PtInRect(&g_ps.plusRc,   pt))
+                    !PtInRect(&g_ps.plusRc,   pt) &&
+                    !PtInRect(&g_ps.toggleRc, pt))
                     return HTCAPTION;
             }
             return hit;
         }
 
         case WM_DESTROY:
-            if (g_ps.hBgBrush)   { DeleteObject(g_ps.hBgBrush);   g_ps.hBgBrush   = nullptr; }
+            KillTimer(hWnd, TOGGLE_TIMER);
+            if (g_ps.hBgBrush)  { DeleteObject(g_ps.hBgBrush);   g_ps.hBgBrush   = nullptr; }
             if (g_ps.hCardBrush) { DeleteObject(g_ps.hCardBrush); g_ps.hCardBrush = nullptr; }
             if (g_ps.hLabelFont) { DeleteObject(g_ps.hLabelFont); g_ps.hLabelFont = nullptr; }
             if (g_ps.hSecFont)   { DeleteObject(g_ps.hSecFont);   g_ps.hSecFont   = nullptr; }
@@ -730,6 +810,7 @@ bool CleanPreferences::Show(HWND parent, AppPreferences& prefs)
     g_ps = {};
     g_ps.work      = prefs;
     g_ps.origColor = prefs.selectionColor;
+    g_ps.toggleAnim = prefs.showSelToolbar ? 1.0f : 0.0f;
     swprintf_s(g_ps.speedLabel, L"x%.1f", prefs.scrollSpeed);
 
     // 부모 중앙 위치

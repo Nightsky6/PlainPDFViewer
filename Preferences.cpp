@@ -31,6 +31,8 @@ void SavePrefs()
     RegSetValueExW(hKey, L"ScrollSpeed", 0, REG_DWORD, (BYTE*)&speed, sizeof(DWORD));
     DWORD recent = (DWORD)g_prefs.maxRecentFiles;
     RegSetValueExW(hKey, L"MaxRecentFiles", 0, REG_DWORD, (BYTE*)&recent, sizeof(DWORD));
+    DWORD selTb = g_prefs.showSelToolbar ? 1 : 0;
+    RegSetValueExW(hKey, L"ShowSelToolbar", 0, REG_DWORD, (BYTE*)&selTb, sizeof(DWORD));
     RegCloseKey(hKey);
 }
 
@@ -51,6 +53,9 @@ void LoadPrefs()
     sz = sizeof(DWORD);
     if (RegQueryValueExW(hKey, L"MaxRecentFiles", nullptr, nullptr, (BYTE*)&val, &sz) == ERROR_SUCCESS)
         g_prefs.maxRecentFiles = std::max(1, std::min(10, (int)val));
+    sz = sizeof(DWORD);
+    if (RegQueryValueExW(hKey, L"ShowSelToolbar", nullptr, nullptr, (BYTE*)&val, &sz) == ERROR_SUCCESS)
+        g_prefs.showSelToolbar = (val != 0);
     RegCloseKey(hKey);
 }
 

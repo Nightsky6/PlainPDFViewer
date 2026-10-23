@@ -234,6 +234,7 @@
     <ClInclude Include="GroupPanel.h" />
     <ClInclude Include="KeywordDialog.h" />
     <ClInclude Include="FindBar.h" />
+    <ClInclude Include="SelToolbar.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="GotoDialog.h" />
     <ClInclude Include="Lang.h" />
@@ -274,6 +275,7 @@
     <ClCompile Include="GroupPanel.cpp" />
     <ClCompile Include="KeywordDialog.cpp" />
     <ClCompile Include="FindBar.cpp" />
+    <ClCompile Include="SelToolbar.cpp" />
     <ClCompile Include="GotoDialog.cpp" />
     <ClCompile Include="Lang.cpp" />
     <ClCompile Include="LicenseDlg.cpp" />

@@ -214,6 +214,8 @@
 #define STR_PREF_LANG_LABEL_ES      L"Idioma de la interfaz"
 #define STR_PREF_BTN_OK_ES          L"Aceptar"
 #define STR_PREF_BTN_CANCEL_ES      L"Cancelar"
+#define STR_PREF_SEC_ANNOT_ES       L"Anotaciones"
+#define STR_PREF_SEL_TOOLBAR_ES     L"Mostrar herramientas de anotación al seleccionar texto"
 #define STR_FIND_NO_RESULT_ES       L" Sin resultados "
 #define STR_FIND_CASE_ES            L"Distinguir mayúsculas"
 #define STR_SIG_IMG_FILTER_ES       L"Archivos de imagen\0*.png;*.jpg;*.jpeg;*.bmp\0Todos los archivos\0*.*\0"
