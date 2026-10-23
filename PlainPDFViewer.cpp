@@ -2593,85 +2593,399 @@ static void DrawTabBar(HDC hdc, const RECT& clientRect)
 
 // ─── 인쇄 ─────────────────────────────────────────────────────────────────────
 
-// ─── 인쇄 ─────────────────────────────────────────────────────────────────────
+// 정의는 파일 저장 코드 근처에 있음
+static bool SavePDFToBuffer(std::vector<char>& outBuf, FPDF_DWORD flags = 0);
 
-// 워커 스레드에 전달할 인쇄 작업 데이터
-struct PrintJobPage
-{
-    std::vector<BYTE> pixels; // BGRx 픽셀 데이터
-    int renderW = 0;
-    int renderH = 0;
-    int offsetX = 0;
-    int offsetY = 0;
-};
-
+// 워커 스레드에 전달할 인쇄 작업 데이터.
+// 인쇄 시작 시점의 문서를 메모리 사본으로 만들어 워커가 따로 열어 사용하므로
+// 인쇄 도중 탭을 닫거나 다른 파일을 열어도 영향을 받지 않는다.
 struct PrintJobData
 {
-    HDC        hPrintDC = nullptr;
-    HGLOBAL    hDevMode = nullptr;
-    HGLOBAL    hDevNames = nullptr;
-    std::wstring jobName;
-    int        printW = 0;
-    int        printH = 0;
-    int        copies = 1;
-    std::vector<PrintJobPage> pages;
+    HDC               hPrintDC = nullptr;
+    std::wstring      jobName;
+    std::vector<char> pdfBuf;
+    std::vector<int>  rotations;    // 페이지별 실효 회전(0~3), 인덱스 = 페이지 번호
+    int  fromPage   = 0;
+    int  toPage     = 0;
+    int  copies     = 1;
+    bool fitToPage  = true;
+    bool poster     = false;
+    int  posterCols = 2;
+    int  posterRows = 2;
 };
 
+struct PrintDevice
+{
+    int    dpiX = 0, dpiY = 0;
+    int    printW = 0, printH = 0;
+    double renderCap = 1.0;          // 렌더 해상도 배율 (300dpi 상한)
+};
+
+enum class PrintPageResult { Ok, RenderFailed, SendFailed };
+
+// 실행 중인 인쇄 워커 스레드 (UI 스레드에서만 접근)
+static std::vector<HANDLE> g_printThreads;
+
+static void PrunePrintThreads()
+{
+    auto it = std::remove_if(g_printThreads.begin(), g_printThreads.end(), [](HANDLE h) {
+        if (WaitForSingleObject(h, 0) != WAIT_OBJECT_0) return false;
+        CloseHandle(h);
+        return true;
+    });
+    g_printThreads.erase(it, g_printThreads.end());
+}
+
+static bool IsPrinting()
+{
+    PrunePrintThreads();
+    return !g_printThreads.empty();
+}
+
+// 프로세스가 끝나면 워커 스레드가 강제 종료되어 인쇄 작업이 중간에 잘리므로
+// 종료 전에 모든 인쇄 작업이 스풀러로 전송될 때까지 기다린다.
+static void WaitForPrintThreads()
+{
+    for (HANDLE h : g_printThreads)
+    {
+        WaitForSingleObject(h, INFINITE);
+        CloseHandle(h);
+    }
+    g_printThreads.clear();
+}
+
+// LS(id) 매크로와 이름이 겹치므로 괄호로 감싸 9개 언어 버전 함수를 직접 호출
+static const wchar_t* PrintStr(const wchar_t* ko, const wchar_t* en, const wchar_t* ja,
+                               const wchar_t* zh, const wchar_t* es, const wchar_t* fr,
+                               const wchar_t* de, const wchar_t* pt, const wchar_t* ru)
+{
+    return (::LS)(ko, en, ja, zh, es, fr, de, pt, ru);
+}
+
+static const wchar_t* PrintErrorTitle()
+{
+    return PrintStr(L"인쇄 오류", L"Print Error", L"印刷エラー", L"打印错误", L"Error de impresión",
+                L"Erreur d'impression", L"Druckfehler", L"Erro de impressão", L"Ошибка печати");
+}
+
+// BGRx 비트맵을 만든다. 메모리가 부족하면 해상도를 절반씩 낮춰 다시 시도한다.
+// (w, h)는 실제로 만들어진 크기로 갱신된다. g_pdfiumMtx를 잡은 상태에서 호출.
+static FPDF_BITMAP CreatePrintBitmap(int& w, int& h)
+{
+    for (int attempt = 0; attempt < 4; ++attempt)
+    {
+        if (FPDF_BITMAP bmp = FPDFBitmap_Create(w, h, 0))
+            return bmp;
+        if (w < 200 || h < 200) break;
+        w /= 2;
+        h /= 2;
+    }
+    return nullptr;
+}
+
+// 시트 한 장: StartPage → 비트맵을 (x, y, dw, dh) 영역에 늘려 출력 → EndPage
+static bool SendSheetToPrinter(HDC dc, FPDF_BITMAP bmp, int x, int y, int dw, int dh)
+{
+    if (StartPage(dc) <= 0) return false;
+
+    const int w = FPDFBitmap_GetWidth(bmp);
+    const int h = FPDFBitmap_GetHeight(bmp);
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth       = FPDFBitmap_GetStride(bmp) / 4;
+    bmi.bmiHeader.biHeight      = -h;
+    bmi.bmiHeader.biPlanes      = 1;
+    bmi.bmiHeader.biBitCount    = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    // SetDIBitsToDevice는 1:1 복사라 프린터 해상도에서 너무 작게 출력됨
+    // StretchDIBits로 출력 영역에 맞게 늘려 인쇄
+    SetStretchBltMode(dc, HALFTONE);
+    SetBrushOrgEx(dc, 0, 0, nullptr);
+    const int lines = StretchDIBits(dc, x, y, dw, dh, 0, 0, w, h,
+        FPDFBitmap_GetBuffer(bmp), &bmi, DIB_RGB_COLORS, SRCCOPY);
+    bool ok = (lines != 0 && lines != GDI_ERROR);
+
+    if (EndPage(dc) <= 0) ok = false;
+    return ok;
+}
+
+static PrintPageResult PrintOnePage(const PrintJobData& job, FPDF_DOCUMENT doc, int pageIdx,
+                                    const PrintDevice& dev)
+{
+    const int rot = (pageIdx < (int)job.rotations.size()) ? job.rotations[pageIdx] : 0;
+    const int renderFlags = FPDF_ANNOT | FPDF_LCD_TEXT | FPDF_PRINTING;
+
+    FPDF_PAGE page = nullptr;
+    double pdfW = 0.0, pdfH = 0.0;
+    {
+        // PDFium은 스레드 안전하지 않으므로 다른 문서에 대한 호출과도 직렬화
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        page = FPDF_LoadPage(doc, pageIdx);
+        if (page)
+        {
+            pdfW = FPDF_GetPageWidth(page);
+            pdfH = FPDF_GetPageHeight(page);
+        }
+    }
+    if (!page) return PrintPageResult::RenderFailed;
+
+    auto closePage = [&]() {
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        FPDF_ClosePage(page);
+    };
+    auto destroyBitmap = [](FPDF_BITMAP bmp) {
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        FPDFBitmap_Destroy(bmp);
+    };
+
+    if (rot == 1 || rot == 3) std::swap(pdfW, pdfH);
+    if (pdfW <= 0.0 || pdfH <= 0.0)
+    {
+        closePage();
+        return PrintPageResult::RenderFailed;
+    }
+
+    const int printW = dev.printW, printH = dev.printH;
+    const double baseW = pdfW * dev.dpiX / 72.0;
+    const double baseH = pdfH * dev.dpiY / 72.0;
+
+    if (job.poster)
+    {
+        const int cols = std::clamp(job.posterCols, 1, 10);
+        const int rows = std::clamp(job.posterRows, 1, 10);
+        const int ovX = (int)(POSTER_OVERLAP_MM / 25.4 * dev.dpiX);
+        const int ovY = (int)(POSTER_OVERLAP_MM / 25.4 * dev.dpiY);
+        const int stepX = std::max(1, printW - ovX);
+        const int stepY = std::max(1, printH - ovY);
+        const double totW = (double)stepX * (cols - 1) + printW;
+        const double totH = (double)stepY * (rows - 1) + printH;
+        const double sc = std::min(totW / baseW, totH / baseH);
+        const double fullW = baseW * sc;
+        const double fullH = baseH * sc;
+        const double cx = (totW - fullW) / 2.0;
+        const double cy = (totH - fullH) / 2.0;
+        const int markLen = std::max(8, dev.dpiX / 4);
+
+        for (int r = 0; r < rows; ++r)
+        {
+            for (int c = 0; c < cols; ++c)
+            {
+                // 조각도 일반 인쇄와 같이 300dpi 상한으로 렌더링한 뒤 용지 크기로 늘린다
+                int tw = std::max(1, (int)(printW * dev.renderCap));
+                int th = std::max(1, (int)(printH * dev.renderCap));
+                FPDF_BITMAP tile = nullptr;
+                {
+                    std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+                    tile = CreatePrintBitmap(tw, th);
+                    if (tile)
+                    {
+                        // 프린터 좌표 → 조각 비트맵 좌표 배율
+                        const double kx = (double)tw / printW;
+                        const double ky = (double)th / printH;
+                        FPDFBitmap_FillRect(tile, 0, 0, tw, th, 0xFFFFFFFF);
+                        FPDF_RenderPageBitmap(tile, page,
+                            (int)((cx - (double)c * stepX) * kx), (int)((cy - (double)r * stepY) * ky),
+                            std::max(1, (int)(fullW * kx)), std::max(1, (int)(fullH * ky)),
+                            rot, renderFlags);
+
+                        BYTE* buf = reinterpret_cast<BYTE*>(FPDFBitmap_GetBuffer(tile));
+                        const size_t stride = (size_t)FPDFBitmap_GetStride(tile);
+                        auto px = [&](int x, int y) {
+                            if (x < 0 || y < 0 || x >= tw || y >= th) return;
+                            BYTE* p = buf + (size_t)y * stride + (size_t)x * 4;
+                            p[0] = p[1] = p[2] = 0x40; p[3] = 0xFF;
+                        };
+                        const int bx = (int)(ovX * kx), by = (int)(ovY * ky);
+                        const int len = std::max(4, (int)(markLen * kx));
+                        std::vector<int> xs, ys;
+                        if (c > 0) xs.push_back(bx);
+                        if (c < cols - 1) xs.push_back(tw - bx);
+                        if (r > 0) ys.push_back(by);
+                        if (r < rows - 1) ys.push_back(th - by);
+                        for (int x : xs)
+                            for (int t = 0; t < len; ++t)
+                            {
+                                px(x, t); px(x, th - 1 - t);
+                            }
+                        for (int y : ys)
+                            for (int t = 0; t < len; ++t)
+                            {
+                                px(t, y); px(tw - 1 - t, y);
+                            }
+                    }
+                }
+                if (!tile)
+                {
+                    closePage();
+                    return PrintPageResult::RenderFailed;
+                }
+
+                const bool sent = SendSheetToPrinter(job.hPrintDC, tile, 0, 0, printW, printH);
+                destroyBitmap(tile);
+                if (!sent)
+                {
+                    closePage();
+                    return PrintPageResult::SendFailed;
+                }
+            }
+        }
+        closePage();
+        return PrintPageResult::Ok;
+    }
+
+    const double scaleX = (double)printW / baseW;
+    const double scaleY = (double)printH / baseH;
+    const double scale  = job.fitToPage ? std::min(scaleX, scaleY) : 1.0;
+
+    const int destW = (int)(baseW * scale);
+    const int destH = (int)(baseH * scale);
+    if (destW <= 0 || destH <= 0)
+    {
+        closePage();
+        return PrintPageResult::RenderFailed;
+    }
+
+    int renderW = std::max(1, (int)(destW * dev.renderCap));
+    int renderH = std::max(1, (int)(destH * dev.renderCap));
+    FPDF_BITMAP bmp = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        bmp = CreatePrintBitmap(renderW, renderH);
+        if (bmp)
+        {
+            FPDFBitmap_FillRect(bmp, 0, 0, renderW, renderH, 0xFFFFFFFF);
+            FPDF_RenderPageBitmap(bmp, page, 0, 0, renderW, renderH, rot, renderFlags);
+        }
+        FPDF_ClosePage(page);
+    }
+    if (!bmp) return PrintPageResult::RenderFailed;
+
+    const bool sent = SendSheetToPrinter(job.hPrintDC, bmp,
+        (printW - destW) / 2, (printH - destH) / 2, destW, destH);
+    destroyBitmap(bmp);
+    return sent ? PrintPageResult::Ok : PrintPageResult::SendFailed;
+}
+
+// 페이지를 하나씩 렌더링해 바로 스풀러로 보낸다 (메모리 사용량이 페이지 수와 무관)
 static DWORD WINAPI PrintWorkerThread(LPVOID param)
 {
-    PrintJobData* job = reinterpret_cast<PrintJobData*>(param);
+    std::unique_ptr<PrintJobData> job(reinterpret_cast<PrintJobData*>(param));
+    HDC dc = job->hPrintDC;
 
-    DOCINFOW di = {};
-    di.cbSize    = sizeof(di);
-    di.lpszDocName = job->jobName.c_str();
+    PrintDevice dev;
+    dev.dpiX   = GetDeviceCaps(dc, LOGPIXELSX);
+    dev.dpiY   = GetDeviceCaps(dc, LOGPIXELSY);
+    dev.printW = GetDeviceCaps(dc, HORZRES);
+    dev.printH = GetDeviceCaps(dc, VERTRES);
+    if (dev.dpiX > 0 && dev.dpiY > 0)
+        dev.renderCap = std::min(1.0, 300.0 / (double)std::max(dev.dpiX, dev.dpiY));
 
-    bool ok = (StartDocW(job->hPrintDC, &di) > 0);
-    if (ok)
+    FPDF_DOCUMENT doc = nullptr;
     {
-        int copies = (job->copies > 0) ? job->copies : 1;
-        for (int c = 0; c < copies && ok; ++c)
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        doc = FPDF_LoadMemDocument(job->pdfBuf.data(), (int)job->pdfBuf.size(), nullptr);
+    }
+
+    wchar_t err[512] = {};
+    if (!doc || dev.dpiX <= 0 || dev.dpiY <= 0 || dev.printW <= 0 || dev.printH <= 0)
+    {
+        wcscpy_s(err, PrintStr(
+            L"인쇄할 문서를 준비하지 못했습니다.",
+            L"Could not prepare the document for printing.",
+            L"印刷する文書を準備できませんでした。",
+            L"无法准备要打印的文档。",
+            L"No se pudo preparar el documento para imprimir.",
+            L"Impossible de préparer le document pour l'impression.",
+            L"Das Dokument konnte nicht für den Druck vorbereitet werden.",
+            L"Não foi possível preparar o documento para impressão.",
+            L"Не удалось подготовить документ к печати."));
+    }
+    else
+    {
+        DOCINFOW di = {};
+        di.cbSize      = sizeof(di);
+        di.lpszDocName = job->jobName.c_str();
+
+        if (StartDocW(dc, &di) <= 0)
         {
-        for (const auto& pg : job->pages)
-        {
-            if (StartPage(job->hPrintDC) <= 0) { ok = false; break; }
-
-            BITMAPINFO bmi = {};
-            bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth       = pg.renderW;
-            bmi.bmiHeader.biHeight      = -pg.renderH;
-            bmi.bmiHeader.biPlanes      = 1;
-            bmi.bmiHeader.biBitCount    = 32;
-            bmi.bmiHeader.biCompression = BI_RGB;
-
-            // SetDIBitsToDevice는 1:1 복사라 프린터 해상도에서 너무 작게 출력됨
-            // StretchDIBits로 출력 영역(offsetX,offsetY,renderW,renderH)에 맞게 늘려 인쇄
-            StretchDIBits(job->hPrintDC,
-                pg.offsetX, pg.offsetY,
-                pg.renderW, pg.renderH,
-                0, 0,
-                pg.renderW, pg.renderH,
-                pg.pixels.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
-
-            EndPage(job->hPrintDC);
+            wcscpy_s(err, PrintStr(
+                L"인쇄 작업을 시작하지 못했습니다. 프린터 상태를 확인해 주세요.",
+                L"Could not start the print job. Please check the printer.",
+                L"印刷ジョブを開始できませんでした。プリンターの状態を確認してください。",
+                L"无法开始打印作业。请检查打印机状态。",
+                L"No se pudo iniciar el trabajo de impresión. Compruebe la impresora.",
+                L"Impossible de démarrer l'impression. Vérifiez l'imprimante.",
+                L"Der Druckauftrag konnte nicht gestartet werden. Bitte prüfen Sie den Drucker.",
+                L"Não foi possível iniciar a impressão. Verifique a impressora.",
+                L"Не удалось начать печать. Проверьте принтер."));
         }
-        } // copies
-        if (ok)
-            EndDoc(job->hPrintDC);
         else
-            AbortDoc(job->hPrintDC);
+        {
+            const int copies = std::max(1, job->copies);
+            for (int c = 0; c < copies && !err[0]; ++c)
+            {
+                for (int i = job->fromPage; i <= job->toPage && !err[0]; ++i)
+                {
+                    switch (PrintOnePage(*job, doc, i, dev))
+                    {
+                    case PrintPageResult::RenderFailed:
+                        swprintf_s(err, PrintStr(
+                            L"%d페이지를 렌더링하지 못해 인쇄를 중단했습니다. (메모리 부족일 수 있습니다)",
+                            L"Printing was stopped because page %d could not be rendered (possibly out of memory).",
+                            L"%dページをレンダリングできなかったため、印刷を中止しました（メモリ不足の可能性があります）。",
+                            L"无法渲染第 %d 页，已停止打印（可能是内存不足）。",
+                            L"Se detuvo la impresión porque no se pudo procesar la página %d (posible falta de memoria).",
+                            L"L'impression a été arrêtée : impossible de rendre la page %d (mémoire insuffisante ?).",
+                            L"Der Druck wurde abgebrochen, da Seite %d nicht gerendert werden konnte (möglicherweise zu wenig Speicher).",
+                            L"A impressão foi interrompida porque não foi possível renderizar a página %d (possível falta de memória).",
+                            L"Печать остановлена: не удалось отрисовать страницу %d (возможно, недостаточно памяти)."), i + 1);
+                        break;
+                    case PrintPageResult::SendFailed:
+                        swprintf_s(err, PrintStr(
+                            L"%d페이지를 프린터로 보내는 중 오류가 발생해 인쇄를 중단했습니다.",
+                            L"Printing was stopped because an error occurred while sending page %d to the printer.",
+                            L"%dページをプリンターに送信中にエラーが発生したため、印刷を中止しました。",
+                            L"向打印机发送第 %d 页时出错，已停止打印。",
+                            L"Se detuvo la impresión por un error al enviar la página %d a la impresora.",
+                            L"L'impression a été arrêtée : erreur lors de l'envoi de la page %d à l'imprimante.",
+                            L"Der Druck wurde abgebrochen, da beim Senden von Seite %d an den Drucker ein Fehler auftrat.",
+                            L"A impressão foi interrompida devido a um erro ao enviar a página %d para a impressora.",
+                            L"Печать остановлена: ошибка при отправке страницы %d на принтер."), i + 1);
+                        break;
+                    default:
+                        break;
+                    }
+                }
+            }
+
+            if (err[0])
+                AbortDoc(dc);
+            else if (EndDoc(dc) <= 0)
+            {
+                wcscpy_s(err, PrintStr(
+                    L"인쇄 작업을 완료하지 못했습니다.",
+                    L"Could not finish the print job.",
+                    L"印刷ジョブを完了できませんでした。",
+                    L"无法完成打印作业。",
+                    L"No se pudo completar el trabajo de impresión.",
+                    L"Impossible de terminer l'impression.",
+                    L"Der Druckauftrag konnte nicht abgeschlossen werden.",
+                    L"Não foi possível concluir a impressão.",
+                    L"Не удалось завершить печать."));
+            }
+        }
     }
 
-    if (!ok)
+    if (doc)
     {
-        MessageBoxW(nullptr,
-            L"\xC778\xC1C4 \xC791\xC5C5\xC744 \xC2DC\xC791\xD558\xC9C0 \xBABB\xD588\xC2B5\xB2C8\xB2E4. \xD504\xB9B0\xD130 \xC0C1\xD0DC\xB97C \xD655\xC778\xD574 \xC8FC\xC138\xC694.",
-            L"\xC778\xC1C4 \xC624\xB958", MB_OK | MB_ICONERROR);
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        FPDF_CloseDocument(doc);
     }
+    DeleteDC(dc);
 
-    DeleteDC(job->hPrintDC);
-    if (job->hDevMode)  GlobalFree(job->hDevMode);
-    if (job->hDevNames) GlobalFree(job->hDevNames);
-    delete job;
+    if (err[0])
+        MessageBoxW(nullptr, err, PrintErrorTitle(), MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     return 0;
 }
 
@@ -2679,184 +2993,64 @@ static void PrintDocument(HWND hWnd)
 {
     if (!g_pdfDoc || g_pageCount <= 0) return;
 
+    std::vector<int> rotations(g_pageCount);
+    for (int i = 0; i < g_pageCount; ++i)
+        rotations[i] = GetEffectiveRotation(i);
+
     PrintDialogResult pdr;
-    if (!ShowPrintDialog(hWnd, g_pdfDoc, g_pageCount, g_currentPage, g_rotation, g_pdfiumMtx, pdr) || !pdr.hDC)
+    if (!ShowPrintDialog(hWnd, g_pdfDoc, g_pageCount, g_currentPage, rotations, g_pdfiumMtx, pdr) || !pdr.hDC)
     {
         if (pdr.hDC) DeleteDC(pdr.hDC);
         return;
     }
 
-    HDC hPrintDC = pdr.hDC;
-
-    int fromPage = std::clamp(pdr.fromPage, 0, g_pageCount - 1);
-    int toPage   = std::clamp(pdr.toPage,   0, g_pageCount - 1);
-    int copies   = std::max(1, pdr.copies);
-
-    int dpiX   = GetDeviceCaps(hPrintDC, LOGPIXELSX);
-    int dpiY   = GetDeviceCaps(hPrintDC, LOGPIXELSY);
-    int printW = GetDeviceCaps(hPrintDC, HORZRES);
-    int printH = GetDeviceCaps(hPrintDC, VERTRES);
-
-    // UI 스레드에서 PDFium으로 모든 페이지를 미리 렌더링
-    PrintJobData* job = new PrintJobData();
-    job->hPrintDC  = hPrintDC;
-    job->hDevMode  = nullptr;
-    job->hDevNames = nullptr;
-    job->printW    = printW;
-    job->printH    = printH;
-    job->copies    = copies;
+    auto job = std::make_unique<PrintJobData>();
+    job->hPrintDC   = pdr.hDC;
+    job->fromPage   = std::clamp(pdr.fromPage, 0, g_pageCount - 1);
+    job->toPage     = std::clamp(pdr.toPage,   0, g_pageCount - 1);
+    job->copies     = std::max(1, pdr.copies);
+    job->fitToPage  = pdr.fitToPage;
+    job->poster     = pdr.poster;
+    job->posterCols = pdr.posterCols;
+    job->posterRows = pdr.posterRows;
+    job->rotations  = std::move(rotations);
 
     const size_t pos = g_filePath.find_last_of(L"\\/");
     job->jobName = (pos != std::wstring::npos) ? g_filePath.substr(pos + 1) : g_filePath;
 
-    for (int i = fromPage; i <= toPage; ++i)
+    // 워커가 독립적으로 열 수 있도록 현재 문서를 메모리로 직렬화 (암호 없이 다시 열 수 있게 보안 제거)
+    bool saved = false;
     {
-        // PDFium은 스레드 안전하지 않으므로 백그라운드 렌더 워커와 동시에 호출되지 않도록 직렬화
         std::lock_guard<std::mutex> pdfLk(g_pdfiumMtx);
-
-        FPDF_PAGE page = FPDF_LoadPage(g_pdfDoc, i);
-        if (!page) continue;
-
-        double pdfW = FPDF_GetPageWidth(page);
-        double pdfH = FPDF_GetPageHeight(page);
-        bool swapped = (g_rotation == 1 || g_rotation == 3);
-        if (swapped) std::swap(pdfW, pdfH);
-
-        if (pdfW <= 0.0 || pdfH <= 0.0 || printW <= 0 || printH <= 0
-            || dpiX <= 0 || dpiY <= 0)
-        {
-            FPDF_ClosePage(page);
-            continue;
-        }
-
-        if (pdr.poster)
-        {
-            const int cols = std::clamp(pdr.posterCols, 1, 10);
-            const int rows = std::clamp(pdr.posterRows, 1, 10);
-            const int ovX = (int)(POSTER_OVERLAP_MM / 25.4 * dpiX);
-            const int ovY = (int)(POSTER_OVERLAP_MM / 25.4 * dpiY);
-            const int stepX = std::max(1, printW - ovX);
-            const int stepY = std::max(1, printH - ovY);
-            const double totW = (double)stepX * (cols - 1) + printW;
-            const double totH = (double)stepY * (rows - 1) + printH;
-            const double baseW = pdfW * dpiX / 72.0, baseH = pdfH * dpiY / 72.0;
-            const double sc = std::min(totW / baseW, totH / baseH);
-            const int fullW = std::max(1, (int)(baseW * sc));
-            const int fullH = std::max(1, (int)(baseH * sc));
-            const int cx = (int)((totW - fullW) / 2.0);
-            const int cy = (int)((totH - fullH) / 2.0);
-            const int markLen = std::max(8, dpiX / 4);
-
-            for (int r = 0; r < rows; ++r)
-            {
-                for (int c = 0; c < cols; ++c)
-                {
-                    FPDF_BITMAP tile = FPDFBitmap_Create(printW, printH, 0);
-                    if (!tile) continue;
-                    FPDFBitmap_FillRect(tile, 0, 0, printW, printH, 0xFFFFFFFF);
-                    FPDF_RenderPageBitmap(tile, page, cx - c * stepX, cy - r * stepY, fullW, fullH, g_rotation,
-                        FPDF_ANNOT | FPDF_LCD_TEXT | FPDF_PRINTING);
-
-                    BYTE* buf = reinterpret_cast<BYTE*>(FPDFBitmap_GetBuffer(tile));
-                    const size_t stride = (size_t)FPDFBitmap_GetStride(tile);
-                    auto px = [&](int x, int y) {
-                        if (x < 0 || y < 0 || x >= printW || y >= printH) return;
-                        BYTE* p = buf + (size_t)y * stride + (size_t)x * 4;
-                        p[0] = p[1] = p[2] = 0x40; p[3] = 0xFF;
-                    };
-                    std::vector<int> xs, ys;
-                    if (c > 0) xs.push_back(ovX);
-                    if (c < cols - 1) xs.push_back(printW - ovX);
-                    if (r > 0) ys.push_back(ovY);
-                    if (r < rows - 1) ys.push_back(printH - ovY);
-                    for (int x : xs)
-                        for (int t = 0; t < markLen; ++t)
-                        {
-                            px(x, t); px(x, printH - 1 - t);
-                        }
-                    for (int y : ys)
-                        for (int t = 0; t < markLen; ++t)
-                        {
-                            px(t, y); px(printW - 1 - t, y);
-                        }
-
-                    PrintJobPage pg;
-                    pg.renderW = printW;
-                    pg.renderH = printH;
-                    pg.offsetX = 0;
-                    pg.offsetY = 0;
-                    pg.pixels.resize((size_t)printW * printH * 4);
-                    for (int row = 0; row < printH; ++row)
-                        memcpy(pg.pixels.data() + (size_t)row * printW * 4, buf + row * stride, (size_t)printW * 4);
-                    job->pages.push_back(std::move(pg));
-                    FPDFBitmap_Destroy(tile);
-                }
-            }
-            FPDF_ClosePage(page);
-            continue;
-        }
-
-        double scaleX = (double)printW / (pdfW * dpiX / 72.0);
-        double scaleY = (double)printH / (pdfH * dpiY / 72.0);
-        double scale  = pdr.fitToPage ? std::min(scaleX, scaleY) : 1.0;
-
-        int renderW = (int)(pdfW * dpiX / 72.0 * scale);
-        int renderH = (int)(pdfH * dpiY / 72.0 * scale);
-
-        if (renderW <= 0 || renderH <= 0)
-        {
-            FPDF_ClosePage(page);
-            continue;
-        }
-
-        FPDF_BITMAP fpdfBmp = FPDFBitmap_Create(renderW, renderH, 0);
-        if (fpdfBmp)
-        {
-            FPDFBitmap_FillRect(fpdfBmp, 0, 0, renderW, renderH, 0xFFFFFFFF);
-            FPDF_RenderPageBitmap(fpdfBmp, page, 0, 0, renderW, renderH, g_rotation,
-                FPDF_ANNOT | FPDF_LCD_TEXT | FPDF_PRINTING);
-        }
-        if (fpdfBmp)
-        {
-            const BYTE* src = reinterpret_cast<const BYTE*>(FPDFBitmap_GetBuffer(fpdfBmp));
-            const size_t stride = (size_t)FPDFBitmap_GetStride(fpdfBmp);
-
-            PrintJobPage pg;
-            pg.renderW = renderW;
-            pg.renderH = renderH;
-            pg.offsetX = (printW - renderW) / 2;
-            pg.offsetY = (printH - renderH) / 2;
-            pg.pixels.resize((size_t)renderW * renderH * 4);
-            for (int row = 0; row < renderH; ++row)
-                memcpy(pg.pixels.data() + (size_t)row * renderW * 4,
-                       src + row * stride, (size_t)renderW * 4);
-
-            job->pages.push_back(std::move(pg));
-            FPDFBitmap_Destroy(fpdfBmp);
-        }
-        FPDF_ClosePage(page);
+        saved = SavePDFToBuffer(job->pdfBuf, FPDF_NO_INCREMENTAL | FPDF_REMOVE_SECURITY);
     }
-
-    // GDI 인쇄 전송만 워커 스레드에서 수행 (UI 블로킹 없음)
-    if (job->pages.empty())
+    if (!saved || job->pdfBuf.empty())
     {
-        // 모든 페이지 렌더링이 실패한 경우 — 인쇄 작업을 보내도 빈 페이지만 출력되므로 사전에 차단
-        MessageBoxW(hWnd, L"\xC778\xC1C4\xD560 \xD398\xC774\xC9C0\xB97C \xB80C\xB354\xB9C1\xD558\xC9C0 \xBABB\xD588\xC2B5\xB2C8\xB2E4.",
-            L"\xC778\xC1C4 \xC624\xB958", MB_OK | MB_ICONERROR);
+        MessageBoxW(hWnd, PrintStr(
+            L"인쇄할 문서를 준비하지 못했습니다.",
+            L"Could not prepare the document for printing.",
+            L"印刷する文書を準備できませんでした。",
+            L"无法准备要打印的文档。",
+            L"No se pudo preparar el documento para imprimir.",
+            L"Impossible de préparer le document pour l'impression.",
+            L"Das Dokument konnte nicht für den Druck vorbereitet werden.",
+            L"Não foi possível preparar o documento para impressão.",
+            L"Не удалось подготовить документ к печати."),
+            PrintErrorTitle(), MB_OK | MB_ICONERROR);
         DeleteDC(job->hPrintDC);
-        if (job->hDevMode)  GlobalFree(job->hDevMode);
-        if (job->hDevNames) GlobalFree(job->hDevNames);
-        delete job;
         return;
     }
 
-    HANDLE hThread = CreateThread(nullptr, 0, PrintWorkerThread, job, 0, nullptr);
+    // 렌더링과 GDI 전송은 워커 스레드에서 수행 (UI 블로킹 없음)
+    PrunePrintThreads();
+    PrintJobData* raw = job.release();
+    HANDLE hThread = CreateThread(nullptr, 0, PrintWorkerThread, raw, 0, nullptr);
     if (hThread)
-        CloseHandle(hThread);
+        g_printThreads.push_back(hThread);
     else
     {
         // 스레드 생성 실패 시 현재 스레드에서 직접 실행
-        PrintWorkerThread(job);
+        PrintWorkerThread(raw);
     }
 }
 
@@ -6496,7 +6690,7 @@ bool SavePDFToFile(const std::wstring& path)
 
 // PDF 내용을 메모리 버퍼로 직렬화한다 (파일 I/O 없음).
 // SaveDocument에서 ClosePDF() 이후에 파일에 쓸 수 있도록 분리한다.
-static bool SavePDFToBuffer(std::vector<char>& outBuf)
+static bool SavePDFToBuffer(std::vector<char>& outBuf, FPDF_DWORD flags)
 {
     if (!g_pdfDoc) return false;
 
@@ -6515,7 +6709,7 @@ static bool SavePDFToBuffer(std::vector<char>& outBuf)
     ctx.buf = &outBuf;
 
     outBuf.clear();
-    return FPDF_SaveAsCopy(g_pdfDoc, &ctx.fw, 0) != 0;
+    return FPDF_SaveAsCopy(g_pdfDoc, &ctx.fw, flags) != 0;
 }
 
 static void EmbedInkAnnotations()
@@ -14097,6 +14291,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             bool ok = CleanPopup::Show(hWnd, LS(STR_SAVE_CHANGES_TITLE), LS(STR_SAVE_CHANGES_CONFIRM), true);
                 if (!ok) return 0;
                 }
+                // 인쇄 전송 중에 종료하면 작업이 중간에 잘리므로 확인 후 WM_DESTROY에서 완료를 기다린다
+                if (IsPrinting() &&
+                    !CleanPopup::Show(hWnd,
+                        PrintStr(L"인쇄", L"Print", L"印刷", L"打印", L"Imprimir", L"Imprimer", L"Drucken", L"Imprimir", L"Печать"),
+                        PrintStr(L"인쇄 작업이 아직 프린터로 전송되는 중입니다.\n전송이 끝난 뒤 종료할까요?",
+                             L"A print job is still being sent to the printer.\nExit after it finishes?",
+                             L"印刷ジョブをプリンターに送信中です。\n送信が終わってから終了しますか？",
+                             L"打印作业仍在发送到打印机。\n是否在发送完成后退出？",
+                             L"Todavía se está enviando un trabajo a la impresora.\n¿Salir cuando termine?",
+                             L"Une impression est encore en cours d'envoi à l'imprimante.\nQuitter une fois terminé ?",
+                             L"Ein Druckauftrag wird noch an den Drucker gesendet.\nNach Abschluss beenden?",
+                             L"Um trabalho ainda está sendo enviado para a impressora.\nSair quando terminar?",
+                             L"Задание ещё отправляется на принтер.\nВыйти после завершения?"),
+                        true))
+                    return 0;
                 SaveWindowPlacement(hWnd);
                 DestroyWindow(hWnd);
                 return 0;
@@ -14115,6 +14324,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 delete leftover;
             }
         }
+        // 진행 중인 인쇄 작업이 스풀러로 모두 전송될 때까지 대기 (FPDF_DestroyLibrary 이전)
+        WaitForPrintThreads();
 
         if (g_activeTab >= 0 && g_activeTab < (int)g_tabs.size())
             SaveTabState(g_tabs[g_activeTab]);

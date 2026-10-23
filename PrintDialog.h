@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <windows.h>
 #include <mutex>
+#include <vector>
 #include "fpdfview.h"
 
 // 인쇄 대화상자 결과 (페이지 인덱스는 0 기반)
@@ -20,5 +21,6 @@ struct PrintDialogResult
 constexpr double POSTER_OVERLAP_MM = 10.0;
 
 // 미리보기가 포함된 인쇄 대화상자. 확인 시 true.
+// rotations: 페이지별 실효 회전(0~3), 인덱스 = 페이지 번호
 bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentPage,
-					 int rotation, std::mutex& pdfiumMtx, PrintDialogResult& out);
+					 const std::vector<int>& rotations, std::mutex& pdfiumMtx, PrintDialogResult& out);

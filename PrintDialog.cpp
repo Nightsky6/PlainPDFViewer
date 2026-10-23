@@ -51,7 +51,8 @@ namespace
 		HWND hRadPoster = nullptr, hEdCols = nullptr, hEdRows = nullptr;
 		HWND hPrev = nullptr, hNext = nullptr, hPrint = nullptr, hCancel = nullptr;
 		FPDF_DOCUMENT doc = nullptr;
-		int  pageCount = 0, curPage = 0, rotation = 0;
+		int  pageCount = 0, curPage = 0;
+		std::vector<int> rotations;   // 페이지별 실효 회전(0~3)
 		std::mutex* mtx = nullptr;
 
 		std::vector<std::wstring> printers;
@@ -115,6 +116,12 @@ namespace
 		f = 0; t = pc - 1;
 	}
 
+	int Rotation(int page)
+	{
+		const auto& r = g->rotations;
+		return (page >= 0 && page < (int)r.size()) ? r[page] : 0;
+	}
+
 	bool PageSize(int idx, double& w, double& h)
 	{
 		State* s = g;
@@ -122,7 +129,8 @@ namespace
 			std::lock_guard<std::mutex> lk(*s->mtx);
 			if (FPDF_GetPageSizeByIndex(s->doc, idx, &w, &h) == 0) return false;
 		}
-		if (s->rotation == 1 || s->rotation == 3) std::swap(w, h);
+		const int rot = Rotation(idx);
+		if (rot == 1 || rot == 3) std::swap(w, h);
 		return w > 0.0 && h > 0.0;
 	}
 
@@ -211,7 +219,7 @@ namespace
 	bool EnsureCache(int page, int w, int h)
 	{
 		State* s = g;
-		if (s->cache && s->cPage == page && s->cW == w && s->cH == h && s->cRot == s->rotation) return true;
+		if (s->cache && s->cPage == page && s->cW == w && s->cH == h && s->cRot == Rotation(page)) return true;
 		FreeCache();
 
 		std::lock_guard<std::mutex> lk(*s->mtx);
@@ -221,11 +229,11 @@ namespace
 		if (b)
 		{
 			FPDFBitmap_FillRect(b, 0, 0, w, h, 0xFFFFFFFF);
-			FPDF_RenderPageBitmap(b, pg, 0, 0, w, h, s->rotation, FPDF_ANNOT | FPDF_LCD_TEXT);
+			FPDF_RenderPageBitmap(b, pg, 0, 0, w, h, Rotation(page), FPDF_ANNOT | FPDF_LCD_TEXT);
 		}
 		FPDF_ClosePage(pg);
 		if (!b) return false;
-		s->cache = b; s->cPage = page; s->cW = w; s->cH = h; s->cRot = s->rotation;
+		s->cache = b; s->cPage = page; s->cW = w; s->cH = h; s->cRot = Rotation(page);
 		return true;
 	}
 
@@ -671,7 +679,7 @@ namespace
 }
 
 bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentPage,
-					 int rotation, std::mutex& pdfiumMtx, PrintDialogResult& out)
+					 const std::vector<int>& rotations, std::mutex& pdfiumMtx, PrintDialogResult& out)
 {
 	if (!doc || pageCount <= 0) return false;
 
@@ -716,7 +724,7 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 		registered = true;
 	}
 
-	s.doc = doc; s.pageCount = pageCount; s.rotation = rotation; s.mtx = &pdfiumMtx;
+	s.doc = doc; s.pageCount = pageCount; s.rotations = rotations; s.mtx = &pdfiumMtx;
 	s.curPage = std::clamp(currentPage, 0, pageCount - 1);
 	s.previewPage = s.curPage;
 	s.out = &out;
