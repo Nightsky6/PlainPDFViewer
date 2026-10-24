@@ -764,6 +764,8 @@ struct BookmarkItem {
     bool         isOpen = false;
     bool         hasChildren = false;
     bool         isUserAdded = false; // 사용자가 직접 추가한 북마크
+    bool         hasPos = false;      // 페이지 내 위치 정보 유무
+    float        pdfX = 0, pdfY = 0;  // 페이지 내 위치 (PDF 좌표)
 };
 bool                            g_sidebarVisible = false;
 static const UINT_PTR           SB_ANIM_TIMER = 0x5342;
@@ -7589,6 +7591,19 @@ static void ExtractBookmarksRecursive(FPDF_DOCUMENT doc, FPDF_BOOKMARK parent, i
         }
         item.pageIndex = dest ? (int)FPDFDest_GetDestPageIndex(doc, dest) : -1;
 
+        // 페이지 내 목적지 위치 (XYZ/FitH 등 Y 좌표가 있는 경우만)
+        if (dest)
+        {
+            FPDF_BOOL hasX = FALSE, hasY = FALSE, hasZoom = FALSE;
+            FS_FLOAT x = 0, y = 0, zoom = 0;
+            if (FPDFDest_GetLocationInPage(dest, &hasX, &hasY, &hasZoom, &x, &y, &zoom) && hasY)
+            {
+                item.hasPos = true;
+                item.pdfX   = hasX ? x : 0.0f;
+                item.pdfY   = y;
+            }
+        }
+
         // 자식 존재 여부
         item.hasChildren = (FPDFBookmark_GetFirstChild(doc, child) != nullptr);
 
@@ -7723,7 +7738,8 @@ static std::wstring GetPreferredUserBookmarksPath(const std::wstring& dir)
 }
 
 // ── 사용자 북마크 저장 (간단한 텍스트 포맷) ──────────────────────────────────
-// 형식: 한 줄에 "pageIndex\ttitle"
+// 형식: 한 줄에 "pageIndex\ttitle" 또는 "pageIndex@pdfX,pdfY\ttitle"
+//   (이전 버전은 _wtoi로 앞의 pageIndex만 읽으므로 호환됨)
 static void SaveUserBookmarks()
 {
     if (g_filePath.empty()) return;
@@ -7750,7 +7766,12 @@ static void SaveUserBookmarks()
         _wfopen_s(&f, path.c_str(), L"w, ccs=UTF-8");
         if (!f) return; // 쓰기 실패 시 기존 파일은 보존
         for (auto& bm : userBms)
-            fwprintf(f, L"%d\t%s\n", bm.pageIndex, bm.title.c_str());
+        {
+            if (bm.hasPos)
+                fwprintf(f, L"%d@%.2f,%.2f\t%s\n", bm.pageIndex, bm.pdfX, bm.pdfY, bm.title.c_str());
+            else
+                fwprintf(f, L"%d\t%s\n", bm.pageIndex, bm.title.c_str());
+        }
         fclose(f);
     }
 
@@ -7784,7 +7805,7 @@ static void LoadUserBookmarks()
             line[--len] = L'\0';
         if (len == 0) continue;
 
-        // pageIndex\ttitle 파싱
+        // pageIndex[@pdfX,pdfY]\ttitle 파싱
         wchar_t* tab = wcschr(line, L'\t');
         if (!tab) continue;
         *tab = L'\0';
@@ -7793,6 +7814,8 @@ static void LoadUserBookmarks()
         if (title.empty()) continue;
 
         BookmarkItem bm;
+        if (const wchar_t* at = wcschr(line, L'@'))
+            bm.hasPos = (swscanf_s(at + 1, L"%f,%f", &bm.pdfX, &bm.pdfY) == 2);
         bm.pageIndex   = pageIdx;
         bm.title       = title;
         bm.level       = 0;
@@ -7805,6 +7828,64 @@ static void LoadUserBookmarks()
     if (candidates.size() > 1 ||
         _wcsicmp(path.c_str(), GetPreferredUserBookmarksPath(dir).c_str()) != 0)
         SaveUserBookmarks();
+}
+
+// ── 북마크 위치 ↔ 화면 좌표 ─────────────────────────────────────────────────
+static const int BOOKMARK_TOP_MARGIN = 12; // 이동 시 목적지 위에 남길 여백 (px)
+
+// 북마크 위치의 페이지 상단 기준 오프셋 (px, 현재 줌/회전 기준)
+static int BookmarkOffsetInPage(const BookmarkItem& bm)
+{
+    if (!bm.hasPos || bm.pageIndex < 0 || bm.pageIndex >= (int)g_pageLayouts.size()) return 0;
+    const auto& pl = g_pageLayouts[bm.pageIndex];
+    int sx = 0, sy = 0;
+    PdfToScreen(bm.pdfX, bm.pdfY, pl.pdfW, pl.pdfH, 0, 0, g_zoom,
+                GetEffectiveRotation(bm.pageIndex), &sx, &sy);
+    return std::clamp(sy, 0, pl.renderH);
+}
+
+// 북마크 위치의 문서 전체 기준 Y 좌표 (px)
+static int BookmarkDocY(const BookmarkItem& bm)
+{
+    return g_pageLayouts[bm.pageIndex].yOffset + BookmarkOffsetInPage(bm);
+}
+
+// 북마크 목적지로 이동 (위치 정보가 있으면 페이지 내 해당 위치까지)
+static void ScrollToBookmark(HWND hWnd, const BookmarkItem& bm)
+{
+    ScrollToPage(hWnd, bm.pageIndex);
+    int offset = BookmarkOffsetInPage(bm);
+    if (offset <= BOOKMARK_TOP_MARGIN) return;
+
+    g_scrollY = g_pageLayouts[bm.pageIndex].yOffset + offset - BOOKMARK_TOP_MARGIN;
+    UpdateScrollBars(hWnd); // 문서 끝 범위로 clamp
+    g_scrollYf = (float)g_scrollY;
+    g_scrollTargetY = g_scrollYf;
+    UpdateActivePageFromScroll(hWnd);
+    InvalidateRect(hWnd, nullptr, TRUE);
+}
+
+// 현재 보기 위치에 해당하는 목차 항목 인덱스 (없으면 -1)
+// 화면 상단을 지난 항목 중 문서상 가장 아래 항목. 접혀서 안 보이면 보이는 상위 항목.
+static int GetActiveOutlineIdx()
+{
+    if (g_pageLayouts.empty()) return -1;
+    const int viewY = g_scrollY + BOOKMARK_TOP_MARGIN * 2;
+    int best = -1, bestY = INT_MIN;
+    for (int i = 0; i < (int)g_bookmarks.size(); ++i)
+    {
+        const auto& bm = g_bookmarks[i];
+        if (bm.isUserAdded || bm.pageIndex < 0 || bm.pageIndex >= (int)g_pageLayouts.size())
+            continue;
+        int y = BookmarkDocY(bm);
+        if (y <= viewY && y >= bestY) { best = i; bestY = y; } // 같은 위치면 나중 항목(하위) 우선
+    }
+    while (best > 0 && !IsBookmarkVisible(best))
+    {
+        int lvl = g_bookmarks[best].level;
+        do { --best; } while (best > 0 && g_bookmarks[best].level >= lvl);
+    }
+    return best;
 }
 
 // ── 현재 페이지를 사용자 북마크로 추가 ───────────────────────────────────────
@@ -7825,6 +7906,28 @@ static void AddUserBookmark(HWND hWnd)
     bm.title       = title;
     bm.level       = 0;
     bm.isUserAdded = true;
+
+    // 화면 상단이 페이지 중간에 있으면 그 위치를 PDF 좌표로 저장 (PdfToScreen의 역변환, x=0)
+    if (g_currentPage >= 0 && g_currentPage < (int)g_pageLayouts.size())
+    {
+        const auto& pl = g_pageLayouts[g_currentPage];
+        int offset = g_scrollY + BOOKMARK_TOP_MARGIN - pl.yOffset;
+        if (offset > BOOKMARK_TOP_MARGIN && offset < pl.renderH)
+        {
+            double sy = offset / (double)g_zoom;
+            double pdfX = 0, pdfY = 0;
+            switch (GetEffectiveRotation(g_currentPage)) {
+            default:
+            case 0: pdfX = 0;            pdfY = pl.pdfH - sy; break;
+            case 1: pdfX = sy;           pdfY = 0;            break;
+            case 2: pdfX = pl.pdfW;      pdfY = sy;           break;
+            case 3: pdfX = pl.pdfW - sy; pdfY = pl.pdfH;      break;
+            }
+            bm.hasPos = true;
+            bm.pdfX   = (float)pdfX;
+            bm.pdfY   = (float)pdfY;
+        }
+    }
     g_bookmarks.push_back(bm);
 
     SaveUserBookmarks();
@@ -8212,7 +8315,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     SetBkMode(hdc, TRANSPARENT);
 
     const bool isBm = (g_sidebarTab == TAB_BOOKMARKS);
-    const wchar_t* headerLabel = isBm ? L"\xBAA9\xCC28" : L"\xD398\xC774\xC9C0";
+    const wchar_t* headerLabel = isBm ? LS(STR_SIDEBAR_HDR_OUTLINE) : LS(STR_SIDEBAR_HDR_PAGES);
     const wchar_t* iconGlyph   = isBm ? L"\xE8FD" : L"\xE7C3";
     RECT labelRect = { 0, sbTop, sbRight, sbTop + SIDEBAR_HEADER_H };
     SetTextColor(hdc, RGB(220, 218, 235));
@@ -8322,12 +8425,35 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
             oldFont = static_cast<HFONT>(SelectObject(hdc, itemFont));
 
+            // 현재 위치의 목차 항목이 바뀌면 그 항목이 보이도록 목록 자동 스크롤
+            const int activeIdx = GetActiveOutlineIdx();
+            static int s_lastActiveIdx = -1;
+            if (activeIdx != s_lastActiveIdx)
+            {
+                s_lastActiveIdx = activeIdx;
+                if (activeIdx >= 0)
+                {
+                    int row = 0;
+                    for (int i = 0; i < activeIdx; ++i)
+                        if (IsBookmarkVisible(i)) row++;
+                    const int rowTop = row * SIDEBAR_ITEM_H;
+                    const int listH  = listBottom - contentTop;
+                    if (rowTop < g_sidebarScrollY)
+                        g_sidebarScrollY = rowTop;
+                    else if (rowTop + SIDEBAR_ITEM_H > g_sidebarScrollY + listH)
+                        g_sidebarScrollY = std::max(0, rowTop + SIDEBAR_ITEM_H - listH);
+                }
+            }
+
             int yy = contentTop - g_sidebarScrollY;
             for (int i = 0; i < (int)g_bookmarks.size(); ++i)
             {
                 if (!IsBookmarkVisible(i)) continue;
 
                 const auto& bm = g_bookmarks[i];
+                // 목차: 현재 위치 항목 하나만, 사용자 북마크: 현재 페이지
+                const bool isActive = bm.isUserAdded ? (bm.pageIndex == g_currentPage)
+                                                     : (i == activeIdx);
                 int itemLeft = 8 + bm.level * SIDEBAR_INDENT;
                 RECT itemRect = { 0, yy, sbRight, yy + SIDEBAR_ITEM_H };
 
@@ -8341,7 +8467,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                     DeleteObject(hoverBr);
                 }
 
-                if (bm.pageIndex == g_currentPage)
+                if (isActive)
                 {
                     HBRUSH activeBr = CreateSolidBrush(RGB(45, 55, 80));
                     FillRect(hdc, &itemRect, activeBr);
@@ -8361,7 +8487,6 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                 }
 
-                bool isActive = (bm.pageIndex == g_currentPage);
                 SetTextColor(hdc, isActive ? RGB(200, 210, 240) :
                     (i == g_sidebarHoverIdx ? RGB(220, 218, 228) : RGB(170, 168, 180)));
 
@@ -12374,10 +12499,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                         break;
                     }
                 }
-                // 페이지 이동
+                // 페이지(및 페이지 내 위치)로 이동
                 if (bm.pageIndex >= 0 && bm.pageIndex < g_pageCount)
                 {
-                    ScrollToPage(hWnd, bm.pageIndex);
+                    ScrollToBookmark(hWnd, bm);
                     InvalidateRect(hWnd, nullptr, TRUE);
                 }
                 else if (bm.hasChildren)

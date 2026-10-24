@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_JA   L"テキスト抽出 - ページ %d-%d"
 #define STR_SIDEBAR_BOOKMARKS_JA    L"\x2630 目次"
 #define STR_SIDEBAR_THUMBNAILS_JA   L"\x25A3 ページ"
+#define STR_SIDEBAR_HDR_OUTLINE_JA  L"目次"
+#define STR_SIDEBAR_HDR_PAGES_JA    L"ページ"
 #define STR_BOOKMARK_DELETE_JA  L"ブックマーク削除"
 #define STR_BOOKMARK_PAGE_FMT_JA        L"ページ %d"
 #define STR_BOOKMARK_DELETE_CONFIRM_JA  L"ブックマーク「%s」を削除しますか？"

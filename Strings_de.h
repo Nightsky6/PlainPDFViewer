@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_DE   L"Textextraktion – Seite %d-%d"
 #define STR_SIDEBAR_BOOKMARKS_DE    L"\x2630 Gliederung"
 #define STR_SIDEBAR_THUMBNAILS_DE   L"\x25A3 Seiten"
+#define STR_SIDEBAR_HDR_OUTLINE_DE  L"Gliederung"
+#define STR_SIDEBAR_HDR_PAGES_DE    L"Seiten"
 #define STR_BOOKMARK_DELETE_DE  L"Lesezeichen löschen"
 #define STR_BOOKMARK_PAGE_FMT_DE        L"Seite %d"
 #define STR_BOOKMARK_DELETE_CONFIRM_DE  L"Lesezeichen „%s“ löschen?"

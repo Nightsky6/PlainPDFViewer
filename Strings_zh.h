@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_ZH   L"文本提取 - 第 %d-%d 页"
 #define STR_SIDEBAR_BOOKMARKS_ZH    L"\x2630 大纲"
 #define STR_SIDEBAR_THUMBNAILS_ZH   L"\x25A3 页面"
+#define STR_SIDEBAR_HDR_OUTLINE_ZH  L"大纲"
+#define STR_SIDEBAR_HDR_PAGES_ZH    L"页面"
 #define STR_BOOKMARK_DELETE_ZH  L"删除书签"
 #define STR_BOOKMARK_PAGE_FMT_ZH        L"第 %d 页"
 #define STR_BOOKMARK_DELETE_CONFIRM_ZH  L"是否删除书签“%s”？"

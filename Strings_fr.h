@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_FR   L"Extraction de texte - Pages %d-%d"
 #define STR_SIDEBAR_BOOKMARKS_FR    L"\x2630 Plan"
 #define STR_SIDEBAR_THUMBNAILS_FR   L"\x25A3 Pages"
+#define STR_SIDEBAR_HDR_OUTLINE_FR  L"Plan"
+#define STR_SIDEBAR_HDR_PAGES_FR    L"Pages"
 #define STR_BOOKMARK_DELETE_FR  L"Supprimer le signet"
 #define STR_BOOKMARK_PAGE_FMT_FR        L"Page %d"
 #define STR_BOOKMARK_DELETE_CONFIRM_FR  L"Supprimer le signet « %s » ?"

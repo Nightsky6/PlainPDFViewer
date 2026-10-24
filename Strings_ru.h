@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_RU   L"Извлечение текста — Страницы %d-%d"
 #define STR_SIDEBAR_BOOKMARKS_RU    L"\x2630 Структура"
 #define STR_SIDEBAR_THUMBNAILS_RU   L"\x25A3 Страницы"
+#define STR_SIDEBAR_HDR_OUTLINE_RU  L"Структура"
+#define STR_SIDEBAR_HDR_PAGES_RU    L"Страницы"
 #define STR_BOOKMARK_DELETE_RU  L"Удалить закладку"
 #define STR_BOOKMARK_PAGE_FMT_RU        L"Страница %d"
 #define STR_BOOKMARK_DELETE_CONFIRM_RU  L"Удалить закладку «%s»?"

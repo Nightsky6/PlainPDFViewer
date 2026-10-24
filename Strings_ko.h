@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_KO   L"텍스트 추출 - 페이지 %d-%d"
 #define STR_SIDEBAR_BOOKMARKS_KO    L"\x2630 목차"
 #define STR_SIDEBAR_THUMBNAILS_KO   L"\x25A3 페이지"
+#define STR_SIDEBAR_HDR_OUTLINE_KO  L"목차"
+#define STR_SIDEBAR_HDR_PAGES_KO    L"페이지"
 #define STR_BOOKMARK_DELETE_KO  L"북마크 삭제"
 #define STR_BOOKMARK_PAGE_FMT_KO        L"페이지 %d"
 #define STR_BOOKMARK_DELETE_CONFIRM_KO  L"\"%s\" 북마크를 삭제하시겠습니까?"

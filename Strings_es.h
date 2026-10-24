@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_ES   L"Extracción de texto - Páginas %d-%d"
 #define STR_SIDEBAR_BOOKMARKS_ES    L"\x2630 Esquema"
 #define STR_SIDEBAR_THUMBNAILS_ES   L"\x25A3 Páginas"
+#define STR_SIDEBAR_HDR_OUTLINE_ES  L"Esquema"
+#define STR_SIDEBAR_HDR_PAGES_ES    L"Páginas"
 #define STR_BOOKMARK_DELETE_ES  L"Eliminar marcador"
 #define STR_BOOKMARK_PAGE_FMT_ES        L"Página %d"
 #define STR_BOOKMARK_DELETE_CONFIRM_ES  L"¿Eliminar el marcador \"%s\"?"

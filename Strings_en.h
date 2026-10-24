@@ -62,6 +62,8 @@
 #define STR_TEXT_EXTRACT_RANGE_EN   L"Text Extraction - Page %d-%d"
 #define STR_SIDEBAR_BOOKMARKS_EN    L"\x2630 Outline"
 #define STR_SIDEBAR_THUMBNAILS_EN   L"\x25A3 Pages"
+#define STR_SIDEBAR_HDR_OUTLINE_EN  L"Outline"
+#define STR_SIDEBAR_HDR_PAGES_EN    L"Pages"
 #define STR_BOOKMARK_DELETE_EN  L"Delete Bookmark"
 #define STR_BOOKMARK_PAGE_FMT_EN        L"Page %d"
 #define STR_BOOKMARK_DELETE_CONFIRM_EN  L"Delete bookmark \"%s\"?"
