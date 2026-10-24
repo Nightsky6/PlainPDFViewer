@@ -7566,8 +7566,14 @@ static void ExtractBookmarksRecursive(FPDF_DOCUMENT doc, FPDF_BOOKMARK parent, i
             item.title = reinterpret_cast<const wchar_t*>(buf.data());
         }
 
-        // 목적지 페이지
+        // 목적지 페이지 (/Dest가 없으면 /A GoTo 액션의 목적지 사용)
         FPDF_DEST dest = FPDFBookmark_GetDest(doc, child);
+        if (!dest)
+        {
+            FPDF_ACTION action = FPDFBookmark_GetAction(child);
+            if (action && FPDFAction_GetType(action) == PDFACTION_GOTO)
+                dest = FPDFAction_GetDest(doc, action);
+        }
         item.pageIndex = dest ? (int)FPDFDest_GetDestPageIndex(doc, dest) : -1;
 
         // 자식 존재 여부
@@ -7702,7 +7708,7 @@ static void AddUserBookmark(HWND hWnd)
 
     // 제목: "페이지 N"
     wchar_t title[64];
-    swprintf_s(title, L"\xD398\xC774\xC9C0 %d", g_currentPage + 1); // "페이지 N"
+    swprintf_s(title, LS(STR_BOOKMARK_PAGE_FMT), g_currentPage + 1);
 
     BookmarkItem bm;
     bm.pageIndex   = g_currentPage;
@@ -7721,9 +7727,9 @@ static void DeleteUserBookmark(HWND hWnd, int idx)
     if (idx < 0 || idx >= (int)g_bookmarks.size()) return;
     if (!g_bookmarks[idx].isUserAdded) return;
 
-    wchar_t msg[128];
-    swprintf_s(msg, L"\"%s\" 북마크를 삭제하시겠습니까?",
-               g_bookmarks[idx].title.c_str());
+    wchar_t msg[512];
+    _snwprintf_s(msg, _TRUNCATE, LS(STR_BOOKMARK_DELETE_CONFIRM),
+                 g_bookmarks[idx].title.c_str());
     if (!ShowConfirmDialog(hWnd, msg)) return;
 
     g_bookmarks.erase(g_bookmarks.begin() + idx);
@@ -8176,7 +8182,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             HFONT oBtnFont = static_cast<HFONT>(SelectObject(hdc, btnFont));
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, RGB(240, 230, 255));
-            DrawTextW(hdc, L"+ \xD604\xC7AC \xD398\xC774\xC9C0 \xBD81\xB9C8\xD06C", -1,
+            DrawTextW(hdc, LS(STR_BOOKMARK_ADD), -1,
                       &addBtnRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             SelectObject(hdc, oBtnFont);
             DeleteObject(btnFont);
@@ -8192,7 +8198,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             oldFont = static_cast<HFONT>(SelectObject(hdc, emptyFont));
             SetTextColor(hdc, RGB(100, 95, 110));
             RECT emptyRect = { 12, sbTop + SIDEBAR_HEADER_H + 12, sbRight - 8, listBottom };
-            DrawTextW(hdc, L"\xBD81\xB9C8\xD06C\xAC00 \xC5C6\xC2B5\xB2C8\xB2E4", -1, &emptyRect, DT_LEFT | DT_TOP | DT_WORDBREAK);
+            DrawTextW(hdc, LS(STR_BOOKMARK_EMPTY), -1, &emptyRect, DT_LEFT | DT_TOP | DT_WORDBREAK);
             SelectObject(hdc, oldFont);
             DeleteObject(emptyFont);
         }
