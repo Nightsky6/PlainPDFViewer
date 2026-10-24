@@ -9993,6 +9993,8 @@ static void UpdateMenuLanguage(HWND hWnd)
     SetItem(hView, IDM_FIT_WIDTH,        LS(STR_MENU_FITWIDTH));
     SetItem(hView, IDM_FIND,             LS(STR_MENU_FIND));
     SetItem(hView, IDM_TOGGLE_SIDEBAR,   LS(STR_MENU_SIDEBAR));
+    SetItem(hView, IDM_BOOKMARK_ADD,     LS(STR_MENU_BOOKMARK_ADD));
+    SetItem(hView, IDM_BOOKMARK_RENAME,  LS(STR_MENU_BOOKMARK_RENAME));
     SetItem(hView, IDM_ROTATE_CW,        LS(STR_MENU_ROTATECW));
     SetItem(hView, IDM_ROTATE_CCW,       LS(STR_MENU_ROTATECCW));
     SetItem(hView, IDM_DARK_MODE,        LS(STR_MENU_DARKMODE));
@@ -10788,6 +10790,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             bool close = g_sidebarVisible && g_sidebarTab == TAB_THUMBNAILS;
             SidebarToggleAnimated(hWnd, close, TAB_THUMBNAILS);
+            break;
+        }
+        case IDM_BOOKMARK_ADD:
+            // 현재 페이지 북마크 추가 (사이드바가 안 보이면 토스트로 알림)
+            if (g_pdfDoc && AddUserBookmark(hWnd) &&
+                !(g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS))
+                ShowToast(hWnd, LS(STR_BOOKMARK_ADDED));
+            break;
+        case IDM_BOOKMARK_RENAME:
+        {
+            // 커서 아래의 사이드바 사용자 북마크, 없으면 현재 페이지의 사용자 북마크
+            // (g_sidebarHoverIdx는 창을 벗어나도 초기화되지 않으므로 실제 커서 위치로 판정)
+            if (!g_pdfDoc) break;
+            int idx = -1;
+            if (g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS)
+            {
+                POINT cp; GetCursorPos(&cp); ScreenToClient(hWnd, &cp);
+                RECT crr; GetClientRect(hWnd, &crr);
+                idx = SidebarHitTest(cp.x, cp.y, crr);
+            }
+            if (idx < 0 || !g_bookmarks[idx].isUserAdded)
+                idx = FindUserBookmarkOnCurrentPage();
+            RenameUserBookmark(hWnd, idx);
             break;
         }
         case IDM_ROTATE_CW:
@@ -11654,11 +11679,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         else if (g_hToolbarTooltip)
         {
-            if (!g_toolbarTipText.empty())
+            // 북마크 사이드바: 추가 버튼 / 사용자 북마크에 단축키 툴팁
+            std::wstring newTip;
+            if (!g_slideshowActive && g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS &&
+                g_pdfDoc && x < SIDEBAR_WIDTH)
             {
-                g_toolbarTipText.clear();
-                KillTimer(hWnd, 901);
+                RECT cr_st; GetClientRect(hWnd, &cr_st);
+                int sbTip = SidebarHitTest(x, y, cr_st);
+                if (sbTip == -2)
+                    newTip = LS(STR_TIP_BOOKMARK_ADD);
+                else if (sbTip >= 0 && g_bookmarks[sbTip].isUserAdded && x < SIDEBAR_WIDTH - 22)
+                    newTip = LS(STR_TIP_BOOKMARK_RENAME);
+            }
+            if (newTip != g_toolbarTipText)
+            {
+                g_toolbarTipText = newTip;
                 ShowWindow(g_hToolbarTooltip, SW_HIDE);
+                KillTimer(hWnd, 901);
+                if (!newTip.empty())
+                    SetTimer(hWnd, 901, 500, nullptr);
             }
         }
 
@@ -14112,18 +14151,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case 'D':
             if (GetKeyState(VK_CONTROL) & 0x8000)
             {
-                // Ctrl+D: 현재 페이지 북마크 추가 (사이드바가 안 보이면 토스트로 알림)
-                if (g_pdfDoc && AddUserBookmark(hWnd) &&
-                    !(g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS))
-                    ShowToast(hWnd, LS(STR_BOOKMARK_ADDED));
+                // Ctrl+D: 현재 페이지 북마크 추가
+                SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_BOOKMARK_ADD, 0), 0);
                 break;
             }
             SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_DARK_MODE, 0), 0);
             break;
         case VK_F2:
-            // F2: 현재 페이지의 사용자 북마크 이름 바꾸기
-            if (g_pdfDoc)
-                RenameUserBookmark(hWnd, FindUserBookmarkOnCurrentPage());
+            // F2: 북마크 이름 바꾸기
+            SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_BOOKMARK_RENAME, 0), 0);
             break;
         case 'F':
             if (g_pdfDoc)

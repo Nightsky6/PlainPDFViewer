@@ -101,6 +101,7 @@
 #define IDM_SPOTLIGHT            32822
 #define IDM_BOOKMARK_ADD         32823
 #define IDM_BOOKMARK_DEL         32824
+#define IDM_BOOKMARK_RENAME      32861
 #define IDM_KEYWORD_HIGHLIGHT    32826
 #define IDM_TWO_PAGE             32827
 #define IDM_WORD_FREQ            32828
