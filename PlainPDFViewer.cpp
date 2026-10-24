@@ -779,6 +779,7 @@ static std::vector<BookmarkItem> g_bookmarks;
 static int                      g_sidebarScrollY = 0;
 static int                      g_sidebarHoverIdx = -1;
 static bool                     g_sidebarHoverTrash = false; // 사용자 북마크 휴지통 아이콘 위
+static bool                     g_sidebarHoverClose = false; // 헤더 닫기(X) 버튼 위
 static int                      g_thumbScrollY = 0;
 static int                      g_thumbHoverIdx = -1;
 // 썸네일 스크롤바 드래그 상태
@@ -8352,6 +8353,14 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
     }
 }
 
+// 사이드바 헤더 오른쪽 닫기(X) 버튼 영역
+static RECT GetSidebarCloseBtnRect()
+{
+    const int sz = 22;
+    const int y0 = GetBelowToolbarY() + (SIDEBAR_HEADER_H - sz) / 2;
+    return { SIDEBAR_WIDTH - sz - 8, y0, SIDEBAR_WIDTH - 8, y0 + sz };
+}
+
 static void DrawSidebar(HDC hdc, const RECT& clientRect)
 {
     if (!g_sidebarVisible && !s_sbClosing) return;
@@ -8415,6 +8424,28 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
 
     SelectObject(hdc, oldFont);
     DeleteObject(hdrFont);
+
+    // 닫기(X) 버튼
+    {
+        RECT closeRc = GetSidebarCloseBtnRect();
+        if (g_sidebarHoverClose)
+        {
+            HBRUSH hovBr = CreateSolidBrush(RGB(62, 58, 82));
+            HPEN   nullPn = static_cast<HPEN>(GetStockObject(NULL_PEN));
+            HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, hovBr));
+            HPEN   oPn = static_cast<HPEN>(SelectObject(hdc, nullPn));
+            RoundRect(hdc, closeRc.left, closeRc.top, closeRc.right + 1, closeRc.bottom + 1, 6, 6);
+            SelectObject(hdc, oBr); SelectObject(hdc, oPn);
+            DeleteObject(hovBr);
+        }
+        HFONT xFont = CreateFontW(10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
+        HFONT oxFont = static_cast<HFONT>(SelectObject(hdc, xFont));
+        SetTextColor(hdc, g_sidebarHoverClose ? RGB(235, 233, 245) : RGB(150, 146, 165));
+        DrawTextW(hdc, L"\xE711", 1, &closeRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE); // Cancel 글리프
+        SelectObject(hdc, oxFont);
+        DeleteObject(xFont);
+    }
 
     // 헤더 하단 구분선
     HPEN sepPen = CreatePen(PS_SOLID, 1, RGB(55, 50, 70));
@@ -10110,6 +10141,9 @@ static void ScrollThumbnailToCurrentPage(HWND hWnd)
 
 static void SidebarToggleAnimated(HWND hWnd, bool close, SidebarTab tab)
 {
+    // 문서가 없으면 열지 않음 (툴바 버튼/메뉴/단축키 공통). 닫기는 항상 허용
+    if (!close && !g_pdfDoc) return;
+
     // 진행 중인 애니메이션은 즉시 마무리
     if (s_sbAnimating)
     {
@@ -11683,9 +11717,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         else if (g_hToolbarTooltip)
         {
-            // 북마크 사이드바: 추가 버튼 / 사용자 북마크에 단축키 툴팁
+            // 사이드바: 헤더 닫기 버튼 / 북마크 추가 버튼 / 사용자 북마크 툴팁
             std::wstring newTip;
-            if (!g_slideshowActive && g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS &&
+            RECT closeTipRc = GetSidebarCloseBtnRect();
+            POINT tipPt = { x, y };
+            if (!g_slideshowActive && g_sidebarVisible && PtInRect(&closeTipRc, tipPt))
+                newTip = LS(STR_CLOSE);
+            else if (!g_slideshowActive && g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS &&
                 g_pdfDoc && x < SIDEBAR_WIDTH)
             {
                 RECT cr_st; GetClientRect(hWnd, &cr_st);
@@ -11729,6 +11767,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (g_sidebarVisible)
         {
             RECT cr4; GetClientRect(hWnd, &cr4);
+
+            // 헤더 닫기(X) 버튼
+            RECT closeRc = GetSidebarCloseBtnRect();
+            POINT pc = { x, y };
+            bool overClose = PtInRect(&closeRc, pc) != FALSE;
+            if (overClose != g_sidebarHoverClose)
+            {
+                g_sidebarHoverClose = overClose;
+                InvalidateRect(hWnd, &closeRc, FALSE);
+            }
+
             if (g_sidebarTab == TAB_THUMBNAILS)
             {
                 int thHit = ThumbnailHitTest(x, y, cr4);
@@ -11811,10 +11860,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         GroupPanel::OnMouseLeave();
         g_trackingMouse = false;
         // 사이드바 hover 초기화 (창을 벗어나면 휴지통/hover 표시가 남지 않도록)
-        if (g_sidebarHoverIdx != -1 || g_sidebarHoverTrash)
+        if (g_sidebarHoverIdx != -1 || g_sidebarHoverTrash || g_sidebarHoverClose)
         {
             g_sidebarHoverIdx = -1;
             g_sidebarHoverTrash = false;
+            g_sidebarHoverClose = false;
             RECT cr_sb; GetClientRect(hWnd, &cr_sb);
             RECT sbInv = { 0, GetBelowToolbarY(), SIDEBAR_WIDTH, cr_sb.bottom - STATUSBAR_HEIGHT };
             InvalidateRect(hWnd, &sbInv, FALSE);
@@ -12550,9 +12600,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         // 사이드바 클릭
         if (g_sidebarVisible && x < SIDEBAR_WIDTH && y >= GetBelowToolbarY())
         {
-            // 헤더 클릭은 무시 (탭 전환은 툴바 버튼으로만)
+            // 헤더: 닫기(X) 버튼만 처리 (탭 전환은 툴바 버튼으로만)
             if (y < GetBelowToolbarY() + SIDEBAR_HEADER_H)
+            {
+                RECT closeRc = GetSidebarCloseBtnRect();
+                POINT pc = { x, y };
+                if (PtInRect(&closeRc, pc))
+                {
+                    g_sidebarHoverClose = false;
+                    SidebarToggleAnimated(hWnd, true, g_sidebarTab);
+                }
                 break;
+            }
 
             // 썸네일 탭 클릭
             if (g_sidebarTab == TAB_THUMBNAILS)
