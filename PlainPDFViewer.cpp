@@ -778,6 +778,7 @@ SidebarTab                      g_sidebarTab = TAB_BOOKMARKS;
 static std::vector<BookmarkItem> g_bookmarks;
 static int                      g_sidebarScrollY = 0;
 static int                      g_sidebarHoverIdx = -1;
+static bool                     g_sidebarHoverTrash = false; // 사용자 북마크 휴지통 아이콘 위
 static int                      g_thumbScrollY = 0;
 static int                      g_thumbHoverIdx = -1;
 // 썸네일 스크롤바 드래그 상태
@@ -8585,7 +8586,10 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                     {
                         RECT delRect = { sbRight - 22, yy + (SIDEBAR_ITEM_H - 15) / 2,
                                          sbRight - 22 + 15, yy + (SIDEBAR_ITEM_H - 15) / 2 + 15 };
-                        DrawPngIcon(hdc, IDB_TRASH_PNG, delRect, 15, true);
+                        // 원본 아이콘이 검정이라 어두운 사이드바에서 보이도록 밝은 색으로 그림
+                        // (아이콘 위에 커서가 있으면 삭제 동작임을 알리도록 빨간색)
+                        DrawPngIconTinted(hdc, IDB_TRASH_PNG, delRect, 15,
+                            g_sidebarHoverTrash ? RGB(240, 90, 90) : RGB(220, 218, 228));
                     }
                     SetTextColor(hdc, isActive ? RGB(200, 210, 240) :
                         (i == g_sidebarHoverIdx ? RGB(220, 218, 228) : RGB(170, 168, 180)));
@@ -11738,9 +11742,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             else
             {
                 int sbHit = SidebarHitTest(x, y, cr4);
-                if (sbHit != g_sidebarHoverIdx)
+                bool sbTrash = (g_sidebarTab == TAB_BOOKMARKS && sbHit >= 0 &&
+                                g_bookmarks[sbHit].isUserAdded && x >= SIDEBAR_WIDTH - 22);
+                if (sbHit != g_sidebarHoverIdx || sbTrash != g_sidebarHoverTrash)
                 {
                     g_sidebarHoverIdx = sbHit;
+                    g_sidebarHoverTrash = sbTrash;
                     RECT sbInv = { 0, GetBelowToolbarY(), SIDEBAR_WIDTH, cr4.bottom - STATUSBAR_HEIGHT };
                     InvalidateRect(hWnd, &sbInv, FALSE);
                 }
@@ -11803,6 +11810,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_MOUSELEAVE:
         GroupPanel::OnMouseLeave();
         g_trackingMouse = false;
+        // 사이드바 hover 초기화 (창을 벗어나면 휴지통/hover 표시가 남지 않도록)
+        if (g_sidebarHoverIdx != -1 || g_sidebarHoverTrash)
+        {
+            g_sidebarHoverIdx = -1;
+            g_sidebarHoverTrash = false;
+            RECT cr_sb; GetClientRect(hWnd, &cr_sb);
+            RECT sbInv = { 0, GetBelowToolbarY(), SIDEBAR_WIDTH, cr_sb.bottom - STATUSBAR_HEIGHT };
+            InvalidateRect(hWnd, &sbInv, FALSE);
+        }
         if (g_statusHoverBtn != -1)
         {
             g_statusHoverBtn = -1;

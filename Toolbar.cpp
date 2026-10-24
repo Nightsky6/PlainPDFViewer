@@ -334,6 +334,31 @@ void DrawPngIcon(HDC hdc, int resId, const RECT& rc, int iconSize, bool enabled,
     gfx.DrawImage(bmp, ix, iy, iconSize, iconSize);
 }
 
+// ── DrawPngIconTinted ─────────────────────────────────────────────────────────
+// 아이콘의 알파(모양)는 유지하고 색상만 tint로 바꿔 그린다 (어두운 배경용)
+void DrawPngIconTinted(HDC hdc, int resId, const RECT& rc, int iconSize, COLORREF tint)
+{
+    Gdiplus::Bitmap* bmp = GetCachedIcon(resId, true);
+    if (!bmp) return;
+    Gdiplus::Graphics gfx(hdc);
+    gfx.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    gfx.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    int ix = rc.left + (rc.right  - rc.left - iconSize) / 2;
+    int iy = rc.top  + (rc.bottom - rc.top  - iconSize) / 2;
+    // RGB는 0으로 만든 뒤 마지막 행(이동량)으로 tint 색을 더함
+    Gdiplus::ColorMatrix cm = {
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0,
+        GetRValue(tint) / 255.f, GetGValue(tint) / 255.f, GetBValue(tint) / 255.f, 0, 1 };
+    Gdiplus::ImageAttributes ia;
+    ia.SetColorMatrix(&cm);
+    gfx.DrawImage(bmp, Gdiplus::Rect(ix, iy, iconSize, iconSize),
+        0, 0, (INT)bmp->GetWidth(), (INT)bmp->GetHeight(),
+        Gdiplus::UnitPixel, &ia);
+}
+
 // ── DrawGradientBackground ────────────────────────────────────────────────────
 void DrawGradientBackground(HDC hdc, const RECT& rect)
 {

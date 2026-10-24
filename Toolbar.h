@@ -75,6 +75,7 @@ int  HitTestToolbar(int x, int y);
 const wchar_t* GetToolbarTooltip(int index);
 
 void DrawPngIcon(HDC hdc, int resId, const RECT& rc, int iconSize, bool enabled, bool darken = false);
+void DrawPngIconTinted(HDC hdc, int resId, const RECT& rc, int iconSize, COLORREF tint);
 void DrawGradientBackground(HDC hdc, const RECT& rect);
 void DrawSoftShadow(HDC hdc, int x, int y, int w, int h);
 void DrawToolbar(HDC hdc, const RECT& clientRect);
