@@ -2195,8 +2195,10 @@ static void  LoadHighlightAnnotations(AnnotLoadResult* out = nullptr, FPDF_DOCUM
 static void  ExtractBookmarks();
 static void  LoadUserBookmarks();
 static void  SaveUserBookmarks();
-static void  AddUserBookmark(HWND hWnd);
+static bool  AddUserBookmark(HWND hWnd);
 static void  DeleteUserBookmark(HWND hWnd, int idx);
+static void  RenameUserBookmark(HWND hWnd, int idx);
+static int   FindUserBookmarkOnCurrentPage();
 static void  DrawSidebar(HDC hdc, const RECT& clientRect);
 static int   SidebarHitTest(int x, int y, const RECT& clientRect);
 static bool  IsBookmarkVisible(int idx);
@@ -7781,6 +7783,20 @@ static void SaveUserBookmarks()
             DeleteFileW(old.c_str());
 }
 
+// ── 사용자 북마크 정렬 (페이지 → 페이지 내 위치 순) ────────────────────────
+// 사용자 북마크는 항상 목록 끝(목차 뒤)에 모여 있다.
+static void SortUserBookmarks()
+{
+    auto first = std::find_if(g_bookmarks.begin(), g_bookmarks.end(),
+                              [](const BookmarkItem& b) { return b.isUserAdded; });
+    std::stable_sort(first, g_bookmarks.end(),
+        [](const BookmarkItem& a, const BookmarkItem& b) {
+            if (a.pageIndex != b.pageIndex) return a.pageIndex < b.pageIndex;
+            if (a.hasPos != b.hasPos) return !a.hasPos;      // 위치 없음 = 페이지 맨 위
+            return a.hasPos && a.pdfY > b.pdfY;              // PDF 좌표는 위쪽이 Y가 큼
+        });
+}
+
 // ── 사용자 북마크 로드 ────────────────────────────────────────────────────────
 static void LoadUserBookmarks()
 {
@@ -7823,6 +7839,7 @@ static void LoadUserBookmarks()
         g_bookmarks.push_back(bm);
     }
     fclose(f);
+    SortUserBookmarks();
 
     // 이전 형식/다른 키 파일에서 읽었으면 현재 키로 옮기고 정리
     if (candidates.size() > 1 ||
@@ -7888,14 +7905,20 @@ static int GetActiveOutlineIdx()
     return best;
 }
 
-// ── 현재 페이지를 사용자 북마크로 추가 ───────────────────────────────────────
-static void AddUserBookmark(HWND hWnd)
+// ── 현재 페이지를 사용자 북마크로 추가 (추가했으면 true) ─────────────────────
+static bool AddUserBookmark(HWND hWnd)
 {
-    if (!g_pdfDoc) return;
+    if (!g_pdfDoc) return false;
 
-    // 이미 같은 페이지 북마크가 있는지 확인
+    // 이미 같은 페이지 북마크가 있으면 알림만 표시
     for (auto& bm : g_bookmarks)
-        if (bm.isUserAdded && bm.pageIndex == g_currentPage) return;
+    {
+        if (bm.isUserAdded && bm.pageIndex == g_currentPage)
+        {
+            ShowToast(hWnd, LS(STR_BOOKMARK_EXISTS));
+            return false;
+        }
+    }
 
     // 제목: "페이지 N"
     wchar_t title[64];
@@ -7929,9 +7952,11 @@ static void AddUserBookmark(HWND hWnd)
         }
     }
     g_bookmarks.push_back(bm);
+    SortUserBookmarks();
 
     SaveUserBookmarks();
     InvalidateRect(hWnd, nullptr, FALSE);
+    return true;
 }
 
 // ── 사용자 북마크 삭제 ────────────────────────────────────────────────────────
@@ -7949,6 +7974,37 @@ static void DeleteUserBookmark(HWND hWnd, int idx)
     g_sidebarHoverIdx = -1;
     SaveUserBookmarks();
     InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+// ── 사용자 북마크 이름 바꾸기 ─────────────────────────────────────────────────
+static void RenameUserBookmark(HWND hWnd, int idx)
+{
+    if (idx < 0 || idx >= (int)g_bookmarks.size()) return;
+    if (!g_bookmarks[idx].isUserAdded) return;
+
+    std::wstring name = g_bookmarks[idx].title;
+    if (!CleanPopup::ShowNoteInput(hWnd, LS(STR_BOOKMARK_RENAME), name)) return;
+
+    // 저장 형식이 한 줄 "page\ttitle"이므로 줄바꿈/탭은 공백으로 바꾸고 앞뒤 공백 제거
+    for (auto& ch : name)
+        if (ch == L'\r' || ch == L'\n' || ch == L'\t') ch = L' ';
+    size_t b = name.find_first_not_of(L' ');
+    if (b == std::wstring::npos) return; // 빈 이름은 무시
+    name = name.substr(b, name.find_last_not_of(L' ') - b + 1);
+    if (name.size() > 200) name.resize(200); // 로드 시 줄 버퍼(1024자) 안에 들어가도록
+
+    g_bookmarks[idx].title = name;
+    SaveUserBookmarks();
+    InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+// 현재 페이지의 사용자 북마크 인덱스 (없으면 -1)
+static int FindUserBookmarkOnCurrentPage()
+{
+    for (int i = 0; i < (int)g_bookmarks.size(); ++i)
+        if (g_bookmarks[i].isUserAdded && g_bookmarks[i].pageIndex == g_currentPage)
+            return i;
+    return -1;
 }
 
 static bool IsBookmarkVisible(int idx)
@@ -7970,6 +8026,26 @@ static bool IsBookmarkVisible(int idx)
     return true;
 }
 
+// 보이는 항목만 순서대로 순회: for (int i = 0; i < n; i = NextVisibleBookmark(i))
+// 접힌 항목의 하위 트리를 한 번에 건너뛰므로 전체 순회가 O(n)
+// (항목마다 IsBookmarkVisible을 호출하면 O(n²))
+static int NextVisibleBookmark(int i)
+{
+    const int n = (int)g_bookmarks.size();
+    const auto& bm = g_bookmarks[i];
+    int j = i + 1;
+    if (bm.hasChildren && !bm.isOpen)
+        while (j < n && g_bookmarks[j].level > bm.level) ++j;
+    return j;
+}
+
+static int CountVisibleBookmarks(int endIdx)
+{
+    int count = 0;
+    for (int i = 0; i < endIdx; i = NextVisibleBookmark(i)) count++;
+    return count;
+}
+
 static int SidebarHitTest(int x, int y, const RECT& clientRect)
 {
     if (!g_sidebarVisible) return -1;
@@ -7984,9 +8060,8 @@ static int SidebarHitTest(int x, int y, const RECT& clientRect)
         return -2; // 추가 버튼
 
     int yy = contentTop - g_sidebarScrollY;
-    for (int i = 0; i < (int)g_bookmarks.size(); ++i)
+    for (int i = 0; i < (int)g_bookmarks.size(); i = NextVisibleBookmark(i))
     {
-        if (!IsBookmarkVisible(i)) continue;
         if (y >= yy && y < yy + SIDEBAR_ITEM_H)
             return i;
         yy += SIDEBAR_ITEM_H;
@@ -8433,10 +8508,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                 s_lastActiveIdx = activeIdx;
                 if (activeIdx >= 0)
                 {
-                    int row = 0;
-                    for (int i = 0; i < activeIdx; ++i)
-                        if (IsBookmarkVisible(i)) row++;
-                    const int rowTop = row * SIDEBAR_ITEM_H;
+                    const int rowTop = CountVisibleBookmarks(activeIdx) * SIDEBAR_ITEM_H;
                     const int listH  = listBottom - contentTop;
                     if (rowTop < g_sidebarScrollY)
                         g_sidebarScrollY = rowTop;
@@ -8446,10 +8518,8 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             }
 
             int yy = contentTop - g_sidebarScrollY;
-            for (int i = 0; i < (int)g_bookmarks.size(); ++i)
+            for (int i = 0; i < (int)g_bookmarks.size(); i = NextVisibleBookmark(i))
             {
-                if (!IsBookmarkVisible(i)) continue;
-
                 const auto& bm = g_bookmarks[i];
                 // 목차: 현재 위치 항목 하나만, 사용자 북마크: 현재 페이지
                 const bool isActive = bm.isUserAdded ? (bm.pageIndex == g_currentPage)
@@ -8465,6 +8535,15 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                     HBRUSH hoverBr = CreateSolidBrush(RGB(50, 48, 65));
                     FillRect(hdc, &itemRect, hoverBr);
                     DeleteObject(hoverBr);
+                }
+
+                // 목차와 사용자 북마크 사이 구분선
+                if (bm.isUserAdded && i > 0 && !g_bookmarks[i - 1].isUserAdded)
+                {
+                    RECT sepRect = { 8, yy, sbRight - 8, yy + 1 };
+                    HBRUSH sepBr = CreateSolidBrush(RGB(70, 65, 90));
+                    FillRect(hdc, &sepRect, sepBr);
+                    DeleteObject(sepBr);
                 }
 
                 if (isActive)
@@ -12934,6 +13013,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int mx = GET_X_LPARAM(lParam);
         int my = GET_Y_LPARAM(lParam);
 
+        // 사이드바 사용자 북마크 더블클릭 → 이름 바꾸기
+        if (g_pdfDoc && g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS && mx < SIDEBAR_WIDTH)
+        {
+            RECT crs; GetClientRect(hWnd, &crs);
+            int bi = SidebarHitTest(mx, my, crs);
+            if (bi >= 0)
+            {
+                if (g_bookmarks[bi].isUserAdded && mx < SIDEBAR_WIDTH - 22)
+                    RenameUserBookmark(hWnd, bi);
+                break;
+            }
+        }
+
         if (g_pdfDoc && !g_textBoxes.empty())
         {
             RECT crtb; GetClientRect(hWnd, &crtb);
@@ -13816,10 +13908,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 }
                 else if (g_sidebarTab == TAB_BOOKMARKS && !g_bookmarks.empty())
                 {
-                    int visCount = 0;
-                    for (int i = 0; i < (int)g_bookmarks.size(); ++i)
-                        if (IsBookmarkVisible(i)) visCount++;
-                    int totalH = visCount * SIDEBAR_ITEM_H;
+                    int totalH = CountVisibleBookmarks((int)g_bookmarks.size()) * SIDEBAR_ITEM_H;
                     int scrollAmt = delta > 0 ? -SIDEBAR_ITEM_H * 3 : SIDEBAR_ITEM_H * 3;
                     g_sidebarScrollY = std::clamp(g_sidebarScrollY + scrollAmt, 0, std::max(0, totalH - contentH));
                     InvalidateRect(hWnd, nullptr, FALSE);
@@ -14021,7 +14110,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             break;
         case 'D':
+            if (GetKeyState(VK_CONTROL) & 0x8000)
+            {
+                // Ctrl+D: 현재 페이지 북마크 추가 (사이드바가 안 보이면 토스트로 알림)
+                if (g_pdfDoc && AddUserBookmark(hWnd) &&
+                    !(g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS))
+                    ShowToast(hWnd, LS(STR_BOOKMARK_ADDED));
+                break;
+            }
             SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDM_DARK_MODE, 0), 0);
+            break;
+        case VK_F2:
+            // F2: 현재 페이지의 사용자 북마크 이름 바꾸기
+            if (g_pdfDoc)
+                RenameUserBookmark(hWnd, FindUserBookmarkOnCurrentPage());
             break;
         case 'F':
             if (g_pdfDoc)
