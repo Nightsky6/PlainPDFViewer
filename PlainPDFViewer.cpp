@@ -7316,8 +7316,21 @@ static void SaveDocument(HWND hWnd, bool saveAs)
         for (auto& s : g_strikeouts) s.cachedRects.clear();
         for (auto& q : g_squigglies) q.cachedRects.clear();
     }
-    ExtractBookmarks();
-    LoadUserBookmarks();
+    // 사용자 북마크는 메모리 내용을 그대로 유지하고 새 경로/ID 기준으로 다시 저장
+    // (다른 이름으로 저장하거나 /ID가 새로 생성되어도 북마크가 따라가도록)
+    {
+        std::vector<BookmarkItem> userBms;
+        for (auto& bm : g_bookmarks)
+            if (bm.isUserAdded) userBms.push_back(bm);
+        ExtractBookmarks();
+        if (userBms.empty())
+            LoadUserBookmarks();
+        else
+        {
+            g_bookmarks.insert(g_bookmarks.end(), userBms.begin(), userBms.end());
+            SaveUserBookmarks();
+        }
+    }
     AddToRecentFiles(savePath);
     UpdateRecentFilesMenu(hWnd);
 
@@ -7601,70 +7614,162 @@ static void ExtractBookmarks()
 }
 
 // ── 사용자 북마크 사이드카 파일 경로 계산 ────────────────────────────────────
-static std::wstring GetUserBookmarksPath()
+// 파일명: "<PDF 파일명>_<키>.bookmarks"
+//   키 = "id" + PDF 트레일러 /ID[0]의 FNV-1a 64비트 해시 (이동/이름 변경/다른 이름 저장에도 유지)
+//        /ID가 없으면 "p" + 정규화(전체 경로, 소문자)한 경로의 해시
+// 조회는 키로만 하므로 PDF 파일명이 바뀌어도 찾을 수 있다.
+static unsigned long long Fnv1a64(const void* data, size_t len)
 {
-    if (g_filePath.empty()) return L"";
+    unsigned long long h = 0xCBF29CE484222325ULL;
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < len; ++i) { h ^= p[i]; h *= 0x100000001B3ULL; }
+    return h;
+}
 
+static std::wstring GetUserBookmarksDir()
+{
     // 내 문서\PlainPDFViewer\bookmark 폴더 경로 획득
     wchar_t* docPath = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docPath)))
         return L"";
-    std::wstring baseDir = std::wstring(docPath) + L"\\PlainPDFViewer\\bookmark";
+    std::wstring appDir = std::wstring(docPath) + L"\\PlainPDFViewer";
     CoTaskMemFree(docPath);
 
     // 폴더 생성 (없으면)
-    CreateDirectoryW((std::wstring(baseDir.c_str(), baseDir.find(L"\\bookmark") + 1) +
-                      L"PlainPDFViewer").c_str(), nullptr);
+    std::wstring baseDir = appDir + L"\\bookmark";
+    CreateDirectoryW(appDir.c_str(), nullptr);
     CreateDirectoryW(baseDir.c_str(), nullptr);
+    return baseDir;
+}
 
+static std::wstring GetPdfBaseName()
+{
     // PDF 경로에서 파일명(확장자 제외) 추출
     std::wstring fname = g_filePath;
     auto sl = fname.find_last_of(L"\\/");
     if (sl != std::wstring::npos) fname = fname.substr(sl + 1);
     auto dot = fname.rfind(L'.');
     if (dot != std::wstring::npos) fname = fname.substr(0, dot);
+    return fname;
+}
 
-    // 전체 경로 기반 해시(8자리 hex)로 동명 파일 충돌 방지
+// PDF /ID[0] 기반 키 (없으면 빈 문자열)
+static std::wstring GetUserBookmarksIdKey()
+{
+    if (!g_pdfDoc) return L"";
+    unsigned long len = FPDF_GetFileIdentifier(g_pdfDoc, FILEIDTYPE_PERMANENT, nullptr, 0);
+    if (len <= 1) return L"";
+    std::vector<unsigned char> buf(len, 0);
+    FPDF_GetFileIdentifier(g_pdfDoc, FILEIDTYPE_PERMANENT, buf.data(), len);
+    wchar_t key[24];
+    swprintf_s(key, L"id%016llX", Fnv1a64(buf.data(), len - 1)); // NUL 제외
+    return key;
+}
+
+// 정규화된 전체 경로 기반 키
+static std::wstring GetUserBookmarksPathKey()
+{
+    wchar_t full[MAX_PATH * 4];
+    DWORD n = GetFullPathNameW(g_filePath.c_str(), _countof(full), full, nullptr);
+    std::wstring norm = (n > 0 && n < _countof(full)) ? std::wstring(full, n) : g_filePath;
+    CharLowerBuffW(norm.data(), (DWORD)norm.size());
+    wchar_t key[24];
+    swprintf_s(key, L"p%016llX", Fnv1a64(norm.data(), norm.size() * sizeof(wchar_t)));
+    return key;
+}
+
+// 이전 버전(std::hash 기반) 파일 경로 — 마이그레이션용
+static std::wstring GetLegacyUserBookmarksPath(const std::wstring& dir)
+{
     std::hash<std::wstring> hasher;
     unsigned int h = (unsigned int)(hasher(g_filePath) & 0xFFFFFFFF);
     wchar_t hashStr[16];
     swprintf_s(hashStr, L"_%08X", h);
+    return dir + L"\\" + GetPdfBaseName() + hashStr + L".bookmarks";
+}
 
-    return baseDir + L"\\" + fname + hashStr + L".bookmarks";
+// 디렉터리에서 "*_<key>.bookmarks" 파일 검색 (없으면 빈 문자열)
+static std::wstring FindUserBookmarksFile(const std::wstring& dir, const std::wstring& key)
+{
+    if (key.empty()) return L"";
+    WIN32_FIND_DATAW fd;
+    HANDLE hFind = FindFirstFileW((dir + L"\\*_" + key + L".bookmarks").c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return L"";
+    FindClose(hFind);
+    return dir + L"\\" + fd.cFileName;
+}
+
+// 기존 북마크 파일 후보 (우선순위 순: /ID 키 → 경로 키 → 이전 버전 파일)
+static std::vector<std::wstring> GetExistingUserBookmarksFiles(const std::wstring& dir)
+{
+    std::vector<std::wstring> found;
+    for (const auto& key : { GetUserBookmarksIdKey(), GetUserBookmarksPathKey() })
+    {
+        std::wstring p = FindUserBookmarksFile(dir, key);
+        if (!p.empty()) found.push_back(p);
+    }
+    std::wstring legacy = GetLegacyUserBookmarksPath(dir);
+    if (GetFileAttributesW(legacy.c_str()) != INVALID_FILE_ATTRIBUTES)
+        found.push_back(legacy);
+    return found;
+}
+
+// 저장에 사용할 경로 (/ID 키 우선, 없으면 경로 키)
+static std::wstring GetPreferredUserBookmarksPath(const std::wstring& dir)
+{
+    std::wstring key = GetUserBookmarksIdKey();
+    if (key.empty()) key = GetUserBookmarksPathKey();
+    return dir + L"\\" + GetPdfBaseName() + L"_" + key + L".bookmarks";
 }
 
 // ── 사용자 북마크 저장 (간단한 텍스트 포맷) ──────────────────────────────────
 // 형식: 한 줄에 "pageIndex\ttitle"
 static void SaveUserBookmarks()
 {
-    std::wstring path = GetUserBookmarksPath();
-    if (path.empty()) return;
+    if (g_filePath.empty()) return;
+    std::wstring dir = GetUserBookmarksDir();
+    if (dir.empty()) return;
+    std::wstring path = GetPreferredUserBookmarksPath(dir);
 
     // 사용자 추가 북마크만 수집
     std::vector<BookmarkItem> userBms;
     for (auto& bm : g_bookmarks)
         if (bm.isUserAdded) userBms.push_back(bm);
 
+    // 기존 파일 목록은 쓰기 전에 수집 (새 파일과 이름이 다를 수 있음)
+    std::vector<std::wstring> oldFiles = GetExistingUserBookmarksFiles(dir);
+
     if (userBms.empty())
     {
         // 파일이 있으면 삭제 (모두 지운 경우)
         DeleteFileW(path.c_str());
-        return;
+    }
+    else
+    {
+        FILE* f = nullptr;
+        _wfopen_s(&f, path.c_str(), L"w, ccs=UTF-8");
+        if (!f) return; // 쓰기 실패 시 기존 파일은 보존
+        for (auto& bm : userBms)
+            fwprintf(f, L"%d\t%s\n", bm.pageIndex, bm.title.c_str());
+        fclose(f);
     }
 
-    FILE* f = nullptr;
-    _wfopen_s(&f, path.c_str(), L"w, ccs=UTF-8");
-    if (!f) return;
-    for (auto& bm : userBms)
-        fwprintf(f, L"%d\t%s\n", bm.pageIndex, bm.title.c_str());
-    fclose(f);
+    // 같은 문서의 다른 키/이전 이름 파일 정리 (마이그레이션, 파일명 변경 반영)
+    for (const auto& old : oldFiles)
+        if (_wcsicmp(old.c_str(), path.c_str()) != 0)
+            DeleteFileW(old.c_str());
 }
 
 // ── 사용자 북마크 로드 ────────────────────────────────────────────────────────
 static void LoadUserBookmarks()
 {
-    std::wstring path = GetUserBookmarksPath();
-    if (path.empty()) return;
+    if (g_filePath.empty()) return;
+    std::wstring dir = GetUserBookmarksDir();
+    if (dir.empty()) return;
+
+    std::vector<std::wstring> candidates = GetExistingUserBookmarksFiles(dir);
+    if (candidates.empty()) return;
+    const std::wstring& path = candidates.front();
 
     FILE* f = nullptr;
     _wfopen_s(&f, path.c_str(), L"r, ccs=UTF-8");
@@ -7695,6 +7800,11 @@ static void LoadUserBookmarks()
         g_bookmarks.push_back(bm);
     }
     fclose(f);
+
+    // 이전 형식/다른 키 파일에서 읽었으면 현재 키로 옮기고 정리
+    if (candidates.size() > 1 ||
+        _wcsicmp(path.c_str(), GetPreferredUserBookmarksPath(dir).c_str()) != 0)
+        SaveUserBookmarks();
 }
 
 // ── 현재 페이지를 사용자 북마크로 추가 ───────────────────────────────────────
