@@ -749,10 +749,12 @@ WNDPROC        g_origEditProc = nullptr;
 // ─── 북마크/목차 사이드바 ─────────────────────────────────────────────────────
 #define SIDEBAR_WIDTH    220
 #define SIDEBAR_ITEM_H   28
-#define SIDEBAR_INDENT   18
+#define SIDEBAR_INDENT   16
+#define SIDEBAR_ITEM_LEFT 24  // 최상위 항목 텍스트 시작 x (왼쪽에 펼침 화살표 자리)
 #define SIDEBAR_HEADER_H 36
 #define SIDEBAR_THUMB_PAD 45   // 썸네일 좌우 여백
 #define SIDEBAR_THUMB_GAP 8    // 썸네일 간 세로 간격
+#define SIDEBAR_THUMB_TOP 10   // 썸네일 목록 위·아래 여백
 #define THUMB_SB_W        6    // 썸네일 사이드바 스크롤바 너비
 
 // enum SidebarTab은 Toolbar.h에 정의됨
@@ -8077,7 +8079,7 @@ static void GetThumbnailGeometry(int pageIdx, const RECT& clientRect, int scroll
     if (!g_pdfDoc || pageIdx < 0 || pageIdx >= g_pageCount) return;
     int availW = SIDEBAR_WIDTH - SIDEBAR_THUMB_PAD * 2;
     int contentTop = GetBelowToolbarY() + SIDEBAR_HEADER_H;
-    int yy = contentTop - scrollY;
+    int yy = contentTop + SIDEBAR_THUMB_TOP - scrollY;
 
     for (int i = 0; i <= pageIdx; ++i)
     {
@@ -8102,7 +8104,7 @@ static int GetThumbnailTotalHeight(const RECT& clientRect)
 {
     if (!g_pdfDoc || g_pageLayouts.empty()) return 0;
     int availW = SIDEBAR_WIDTH - SIDEBAR_THUMB_PAD * 2;
-    int total = 0;
+    int total = SIDEBAR_THUMB_TOP * 2;
     for (int i = 0; i < g_pageCount; ++i)
     {
         double pw = g_pageLayouts[i].pdfW;
@@ -8123,7 +8125,7 @@ static int ThumbnailHitTest(int x, int y, const RECT& clientRect)
     if (y < contentTop || y >= contentBottom) return -1;
 
     int availW = SIDEBAR_WIDTH - SIDEBAR_THUMB_PAD * 2;
-    int yy = contentTop - g_thumbScrollY;
+    int yy = contentTop + SIDEBAR_THUMB_TOP - g_thumbScrollY;
     for (int i = 0; i < g_pageCount; ++i)
     {
         double pw = g_pageLayouts[i].pdfW;
@@ -8136,6 +8138,56 @@ static int ThumbnailHitTest(int x, int y, const RECT& clientRect)
         yy += itemH;
     }
     return -1;
+}
+
+// ─── 사이드바 팔레트 / 안티앨리어싱 둥근 사각형 헬퍼 ─────────────────────────
+#define SB_CLR_BG          RGB(26, 25, 33)    // 사이드바 배경 (헤더 포함)
+#define SB_CLR_LINE        RGB(46, 44, 58)    // 구분선
+#define SB_CLR_HOVER       RGB(40, 39, 52)    // 항목 hover 배경
+#define SB_CLR_ACTIVE      RGB(38, 48, 74)    // 현재 항목 배경
+#define SB_CLR_ACCENT      RGB(110, 150, 235) // 강조색
+#define SB_CLR_TEXT        RGB(222, 220, 232)
+#define SB_CLR_TEXT_DIM    RGB(158, 156, 172)
+#define SB_CLR_TEXT_MUTED  RGB(112, 110, 128)
+
+// 현재 HDC 클리핑 영역을 그대로 따르는 GDI+ 둥근 사각형 (border == CLR_INVALID 이면 테두리 없음)
+static void SbRoundRect(HDC hdc, float x, float y, float w, float h, float r,
+    COLORREF fill, BYTE fillAlpha = 255, COLORREF border = CLR_INVALID, float borderW = 1.0f)
+{
+    if (w <= 0 || h <= 0) return;
+    r = std::min(r, std::min(w, h) / 2.0f);
+    Gdiplus::Graphics g(hdc);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    Gdiplus::GraphicsPath path;
+    if (r <= 0.5f)
+        path.AddRectangle(Gdiplus::RectF(x, y, w, h));
+    else
+    {
+        const float d = r * 2;
+        path.AddArc(x, y, d, d, 180, 90);
+        path.AddArc(x + w - d, y, d, d, 270, 90);
+        path.AddArc(x + w - d, y + h - d, d, d, 0, 90);
+        path.AddArc(x, y + h - d, d, d, 90, 90);
+        path.CloseFigure();
+    }
+    if (fill != CLR_INVALID)
+    {
+        Gdiplus::SolidBrush br(Gdiplus::Color(fillAlpha, GetRValue(fill), GetGValue(fill), GetBValue(fill)));
+        g.FillPath(&br, &path);
+    }
+    if (border != CLR_INVALID)
+    {
+        Gdiplus::Pen pen(Gdiplus::Color(255, GetRValue(border), GetGValue(border), GetBValue(border)), borderW);
+        g.DrawPath(&pen, &path);
+    }
+}
+
+static void SbRoundRect(HDC hdc, const RECT& rc, float r, COLORREF fill, BYTE fillAlpha = 255,
+    COLORREF border = CLR_INVALID, float borderW = 1.0f)
+{
+    SbRoundRect(hdc, (float)rc.left, (float)rc.top, (float)(rc.right - rc.left),
+        (float)(rc.bottom - rc.top), r, fill, fillAlpha, border, borderW);
 }
 
 static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
@@ -8155,7 +8207,7 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         HFONT of = static_cast<HFONT>(SelectObject(hdc, emptyFont));
         SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(100, 95, 110));
+        SetTextColor(hdc, SB_CLR_TEXT_MUTED);
         RECT er = { 12, contentTop + 12, sbRight - 8, sbBottom };
         DrawTextW(hdc, L"\xBB38\xC11C\xB97C \xC5EC\xC138\xC694", -1, &er, DT_LEFT | DT_TOP | DT_WORDBREAK);  // 문서를 여세요
         SelectObject(hdc, of);
@@ -8167,7 +8219,7 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
     HRGN clipRgn = CreateRectRgn(0, contentTop, sbRight, sbBottom);
     SelectClipRgn(hdc, clipRgn);
 
-    int yy = contentTop - g_thumbScrollY;
+    int yy = contentTop + SIDEBAR_THUMB_TOP - g_thumbScrollY;
     for (int i = 0; i < g_pageCount; ++i)
     {
         if (i >= (int)g_pageLayouts.size()) break;
@@ -8185,21 +8237,16 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
         bool isCurrent = (i == g_currentPage);
         bool isHover = (i == g_thumbHoverIdx);
 
-        // 현재 페이지 배경 하이라이트
-        if (isCurrent)
+        // 현재/hover 페이지 카드 배경 (둥근 모서리)
+        if (isCurrent || isHover)
         {
-            RECT hlRect = { tx - 4, yy - 3, tx + tw + 4, yy + th + 20 + 3 };
-            HBRUSH hlBr = CreateSolidBrush(RGB(45, 55, 80));
-            FillRect(hdc, &hlRect, hlBr);
-            DeleteObject(hlBr);
+            RECT hlRect = { tx - 9, yy - 6, tx + tw + 9, yy + th + 20 + 2 };
+            SbRoundRect(hdc, hlRect, 8, isCurrent ? SB_CLR_ACTIVE : SB_CLR_HOVER);
         }
-        else if (isHover)
-        {
-            RECT hlRect = { tx - 4, yy - 3, tx + tw + 4, yy + th + 20 + 3 };
-            HBRUSH hlBr = CreateSolidBrush(RGB(40, 38, 55));
-            FillRect(hdc, &hlRect, hlBr);
-            DeleteObject(hlBr);
-        }
+
+        // 썸네일 그림자 (아래쪽으로 퍼지는 은은한 그림자)
+        SbRoundRect(hdc, (float)tx - 2, (float)yy, (float)tw + 4, (float)th + 4, 4, RGB(0, 0, 0), 40);
+        SbRoundRect(hdc, (float)tx - 1, (float)yy, (float)tw + 2, (float)th + 2, 3, RGB(0, 0, 0), 70);
 
         // 썸네일 캐시 확인
         bool thumbValid = (i < (int)g_thumbCache.size()
@@ -8285,26 +8332,35 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
             }
         }
 
-        // 테두리
-        COLORREF borderColor = isCurrent ? RGB(100, 140, 220) : RGB(60, 58, 75);
-        HPEN bPen = CreatePen(PS_SOLID, isCurrent ? 2 : 1, borderColor);
-        HPEN oldP = static_cast<HPEN>(SelectObject(hdc, bPen));
-        HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
-        Rectangle(hdc, tx, yy, tx + tw, yy + th);
-        SelectObject(hdc, oldP);
-        SelectObject(hdc, oldBr);
-        DeleteObject(bPen);
+        // 테두리: 현재 페이지는 바깥쪽 강조 링, 나머지는 얇은 윤곽선
+        if (isCurrent)
+            SbRoundRect(hdc, (float)tx - 2.5f, (float)yy - 2.5f, (float)tw + 5, (float)th + 5, 3,
+                CLR_INVALID, 255, SB_CLR_ACCENT, 2.0f);
+        else
+            SbRoundRect(hdc, (float)tx, (float)yy, (float)tw, (float)th, 0,
+                CLR_INVALID, 255, isHover ? RGB(90, 88, 110) : RGB(52, 50, 64));
 
-        // 페이지 번호
+        // 페이지 번호 (현재 페이지는 강조색 배지)
         WCHAR pageLabel[32];
         swprintf_s(pageLabel, L"%d", i + 1);
-        HFONT pgFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT pgFont = CreateFontW(12, 0, 0, 0, isCurrent ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, pgFont));
         SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, isCurrent ? RGB(255, 255, 255) : RGB(220, 220, 220));
-        RECT labelRect = { tx, yy + th + 2, tx + tw, yy + th + 18 };
-        DrawTextW(hdc, pageLabel, -1, &labelRect, DT_CENTER | DT_TOP | DT_SINGLELINE);
+        RECT labelRect = { tx, yy + th + 4, tx + tw, yy + th + 20 };
+        if (isCurrent)
+        {
+            SIZE ls = {};
+            GetTextExtentPoint32W(hdc, pageLabel, (int)wcslen(pageLabel), &ls);
+            const int pillW = std::max(26, (int)ls.cx + 14);
+            const int cx = tx + tw / 2;
+            RECT pill = { cx - pillW / 2, labelRect.top, cx - pillW / 2 + pillW, labelRect.bottom };
+            SbRoundRect(hdc, pill, 8, SB_CLR_ACCENT);
+            SetTextColor(hdc, RGB(255, 255, 255));
+        }
+        else
+            SetTextColor(hdc, isHover ? SB_CLR_TEXT : SB_CLR_TEXT_DIM);
+        DrawTextW(hdc, pageLabel, -1, &labelRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         SelectObject(hdc, oldFont);
         DeleteObject(pgFont);
 
@@ -8324,13 +8380,7 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
             int trackY = contentTop;
             int trackH = contentH;
 
-            // 트랙 배경
-            HBRUSH trackBr = CreateSolidBrush(RGB(22, 20, 32));
-            RECT trackRc = { trackX, trackY, trackX + THUMB_SB_W, trackY + trackH };
-            FillRect(hdc, &trackRc, trackBr);
-            DeleteObject(trackBr);
-
-            // 썸 크기·위치
+            // 썸 크기·위치 (트랙은 배경과 같게 두고 썸만 표시)
             int thumbH    = std::max(20, trackH * contentH / totalH);
             int maxScroll = totalH - contentH;
             int denom     = trackH - thumbH;
@@ -8338,17 +8388,9 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
                                 ? (g_thumbScrollY * denom / maxScroll)
                                 : 0);
 
-            HBRUSH thumbBr = CreateSolidBrush(RGB(100, 96, 130));
-            RECT thumbRc = { trackX, thumbY, trackX + THUMB_SB_W, thumbY + thumbH };
-            // 둥근 직사각형
-            HPEN nullPen = CreatePen(PS_NULL, 0, 0);
-            HPEN oldPen  = static_cast<HPEN>(SelectObject(hdc, nullPen));
-            HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, thumbBr));
-            RoundRect(hdc, trackX, thumbY, trackX + THUMB_SB_W, thumbY + thumbH, 4, 4);
-            SelectObject(hdc, oldPen);
-            SelectObject(hdc, oldBr);
-            DeleteObject(nullPen);
-            DeleteObject(thumbBr);
+            RECT thumbRc = { trackX + 1, thumbY + 2, trackX + THUMB_SB_W - 1, thumbY + thumbH - 2 };
+            SbRoundRect(hdc, thumbRc, THUMB_SB_W / 2.0f,
+                g_thumbSbDragging ? RGB(128, 126, 150) : RGB(78, 76, 96));
         }
     }
 }
@@ -8369,86 +8411,86 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     int sbBottom = clientRect.bottom - STATUSBAR_HEIGHT;
     int sbRight = SIDEBAR_WIDTH;
 
-    // 사이드바 배경
+    // 사이드바 배경 (헤더까지 한 색으로 이어지게)
     RECT bgRect = { 0, sbTop, sbRight, sbBottom };
-    if (g_sidebarTab == TAB_THUMBNAILS)
     {
-        TRIVERTEX tv[2] = {};
-        tv[0].x = bgRect.left;  tv[0].y = bgRect.top;
-        tv[0].Red = 0x2800; tv[0].Green = 0x2600; tv[0].Blue = 0x3800;
-        tv[1].x = bgRect.right; tv[1].y = bgRect.bottom;
-        tv[1].Red = 0x1A00; tv[1].Green = 0x1900; tv[1].Blue = 0x2400;
-        GRADIENT_RECT gr = { 0, 1 };
-        GradientFill(hdc, tv, 2, &gr, 1, GRADIENT_FILL_RECT_V);
-    }
-    else
-    {
-        HBRUSH bgBr = CreateSolidBrush(RGB(30, 28, 40));
+        HBRUSH bgBr = CreateSolidBrush(SB_CLR_BG);
         FillRect(hdc, &bgRect, bgBr);
         DeleteObject(bgBr);
     }
 
-    // ─── 헤더 ───
-    RECT headerRect = { 0, sbTop, sbRight, sbTop + SIDEBAR_HEADER_H };
-    HBRUSH headerBr = CreateSolidBrush(RGB(38, 35, 52));
-    FillRect(hdc, &headerRect, headerBr);
-    DeleteObject(headerBr);
-
-    HFONT hdrFont = CreateFontW(13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, hdrFont));
+    // ─── 헤더: [아이콘 배지] 제목  개수 ............ [X] ───
     SetBkMode(hdc, TRANSPARENT);
-
     const bool isBm = (g_sidebarTab == TAB_BOOKMARKS);
     const wchar_t* headerLabel = isBm ? LS(STR_SIDEBAR_HDR_OUTLINE) : LS(STR_SIDEBAR_HDR_PAGES);
     const wchar_t* iconGlyph   = isBm ? L"\xE8FD" : L"\xE7C3";
-    RECT labelRect = { 0, sbTop, sbRight, sbTop + SIDEBAR_HEADER_H };
-    SetTextColor(hdc, RGB(220, 218, 235));
 
-    HFONT icoFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    // 아이콘 배지 (강조색을 옅게 깐 둥근 사각형)
+    const int badgeSz = 22;
+    RECT badgeRc = { 12, sbTop + (SIDEBAR_HEADER_H - badgeSz) / 2, 12 + badgeSz,
+                     sbTop + (SIDEBAR_HEADER_H - badgeSz) / 2 + badgeSz };
+    SbRoundRect(hdc, badgeRc, 6, SB_CLR_ACCENT, 46);
+    HFONT icoFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
-    SIZE txtSz = {}, icoSz = {};
-    GetTextExtentPoint32W(hdc, headerLabel, (int)wcslen(headerLabel), &txtSz);
-    HFONT prevF = static_cast<HFONT>(SelectObject(hdc, icoFont));
-    GetTextExtentPoint32W(hdc, iconGlyph, 1, &icoSz);
-    const int gap = 6;
-    int totalW = icoSz.cx + gap + txtSz.cx;
-    int startX = (sbRight - totalW) / 2;
-    RECT icoRc = { startX, sbTop, startX + icoSz.cx, sbTop + SIDEBAR_HEADER_H };
-    DrawTextW(hdc, iconGlyph, 1, &icoRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    SelectObject(hdc, prevF);
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, icoFont));
+    SetTextColor(hdc, RGB(150, 182, 250));
+    DrawTextW(hdc, iconGlyph, 1, &badgeRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, oldFont);
     DeleteObject(icoFont);
 
-    RECT txtRc = { startX + icoSz.cx + gap, sbTop, sbRight, sbTop + SIDEBAR_HEADER_H };
-    DrawTextW(hdc, headerLabel, -1, &txtRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
+    HFONT hdrFont = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    oldFont = static_cast<HFONT>(SelectObject(hdc, hdrFont));
+    SetTextColor(hdc, SB_CLR_TEXT);
+    const int titleX = badgeRc.right + 9;
+    const int titleMaxR = GetSidebarCloseBtnRect().left - 6;
+    SIZE txtSz = {};
+    GetTextExtentPoint32W(hdc, headerLabel, (int)wcslen(headerLabel), &txtSz);
+    RECT txtRc = { titleX, sbTop, titleMaxR, sbTop + SIDEBAR_HEADER_H };
+    DrawTextW(hdc, headerLabel, -1, &txtRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     SelectObject(hdc, oldFont);
     DeleteObject(hdrFont);
+
+    // 썸네일 탭: 제목 옆에 전체 페이지 수
+    if (!isBm && g_pdfDoc && g_pageCount > 0)
+    {
+        WCHAR cnt[16];
+        swprintf_s(cnt, L"%d", g_pageCount);
+        HFONT cntFont = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+        oldFont = static_cast<HFONT>(SelectObject(hdc, cntFont));
+        SIZE cs = {};
+        GetTextExtentPoint32W(hdc, cnt, (int)wcslen(cnt), &cs);
+        const int pillW = (int)cs.cx + 12, pillH = 18;
+        const int px = titleX + (int)txtSz.cx + 8;
+        if (px + pillW <= titleMaxR)
+        {
+            RECT pill = { px, sbTop + (SIDEBAR_HEADER_H - pillH) / 2, px + pillW,
+                          sbTop + (SIDEBAR_HEADER_H - pillH) / 2 + pillH };
+            SbRoundRect(hdc, pill, pillH / 2.0f, RGB(44, 42, 56));
+            SetTextColor(hdc, SB_CLR_TEXT_DIM);
+            DrawTextW(hdc, cnt, -1, &pill, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+        SelectObject(hdc, oldFont);
+        DeleteObject(cntFont);
+    }
 
     // 닫기(X) 버튼
     {
         RECT closeRc = GetSidebarCloseBtnRect();
         if (g_sidebarHoverClose)
-        {
-            HBRUSH hovBr = CreateSolidBrush(RGB(62, 58, 82));
-            HPEN   nullPn = static_cast<HPEN>(GetStockObject(NULL_PEN));
-            HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, hovBr));
-            HPEN   oPn = static_cast<HPEN>(SelectObject(hdc, nullPn));
-            RoundRect(hdc, closeRc.left, closeRc.top, closeRc.right + 1, closeRc.bottom + 1, 6, 6);
-            SelectObject(hdc, oBr); SelectObject(hdc, oPn);
-            DeleteObject(hovBr);
-        }
+            SbRoundRect(hdc, closeRc, 6, RGB(52, 50, 66));
         HFONT xFont = CreateFontW(10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
         HFONT oxFont = static_cast<HFONT>(SelectObject(hdc, xFont));
-        SetTextColor(hdc, g_sidebarHoverClose ? RGB(235, 233, 245) : RGB(150, 146, 165));
+        SetTextColor(hdc, g_sidebarHoverClose ? RGB(235, 233, 245) : SB_CLR_TEXT_MUTED);
         DrawTextW(hdc, L"\xE711", 1, &closeRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE); // Cancel 글리프
         SelectObject(hdc, oxFont);
         DeleteObject(xFont);
     }
 
     // 헤더 하단 구분선
-    HPEN sepPen = CreatePen(PS_SOLID, 1, RGB(55, 50, 70));
+    HPEN sepPen = CreatePen(PS_SOLID, 1, SB_CLR_LINE);
     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, sepPen));
     MoveToEx(hdc, 0, sbTop + SIDEBAR_HEADER_H - 1, nullptr);
     LineTo(hdc, sbRight, sbTop + SIDEBAR_HEADER_H - 1);
@@ -8462,49 +8504,49 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     }
     else
     {
-        // ── "+ 현재 페이지 추가" 버튼 (보라 그라데이션) ──
+        // ── "+ 현재 페이지 북마크" 버튼 (하단 고정, 차분한 고스트 버튼) ──
         const int addBtnH = 28;
-        RECT addBtnRect = { 6, sbBottom - addBtnH - 4, sbRight - 6, sbBottom - 4 };
+        RECT addBtnRect = { 8, sbBottom - addBtnH - 4, sbRight - 8, sbBottom - 4 };
         bool addHovered = (g_sidebarHoverIdx == -2);
         {
-            // 둥근 모서리 클리핑
-            HRGN btnRgn = CreateRoundRectRgn(addBtnRect.left, addBtnRect.top,
-                                              addBtnRect.right, addBtnRect.bottom, 6, 6);
-            SelectClipRgn(hdc, btnRgn);
+            // 목록과 버튼 영역 사이 구분선
+            RECT footSep = { 0, sbBottom - addBtnH - 10, sbRight, sbBottom - addBtnH - 9 };
+            HBRUSH footBr = CreateSolidBrush(SB_CLR_LINE);
+            FillRect(hdc, &footSep, footBr);
+            DeleteObject(footBr);
 
-            // 그라데이션 채우기 (위: 밝은 보라 → 아래: 진한 보라)
-            TRIVERTEX tv[2] = {};
-            tv[0].x     = addBtnRect.left;  tv[0].y = addBtnRect.top;
-            tv[1].x     = addBtnRect.right; tv[1].y = addBtnRect.bottom;
-            if (addHovered) {
-                tv[0].Red = 0xB000; tv[0].Green = 0x7000; tv[0].Blue = 0xFF00; tv[0].Alpha = 0;
-                tv[1].Red = 0x7000; tv[1].Green = 0x3000; tv[1].Blue = 0xCC00; tv[1].Alpha = 0;
-            } else {
-                tv[0].Red = 0x9000; tv[0].Green = 0x5000; tv[0].Blue = 0xE000; tv[0].Alpha = 0;
-                tv[1].Red = 0x5800; tv[1].Green = 0x2000; tv[1].Blue = 0xAA00; tv[1].Alpha = 0;
-            }
-            GRADIENT_RECT gr = { 0, 1 };
-            GradientFill(hdc, tv, 2, &gr, 1, GRADIENT_FILL_RECT_V);
+            SbRoundRect(hdc, addBtnRect, 6,
+                addHovered ? SB_CLR_ACTIVE : RGB(34, 33, 44), 255,
+                addHovered ? SB_CLR_ACCENT : RGB(58, 56, 72), 1.0f);
 
-            SelectClipRgn(hdc, nullptr);
-            DeleteObject(btnRgn);
+            // 문자열 앞의 "+ "는 아이콘으로 대신 그린다
+            const wchar_t* addLabel = LS(STR_BOOKMARK_ADD);
+            if (addLabel[0] == L'+') { ++addLabel; while (*addLabel == L' ') ++addLabel; }
 
-            // 테두리
-            HPEN btnPn = CreatePen(PS_SOLID, 1, addHovered ? RGB(190, 130, 255) : RGB(150, 90, 220));
-            HPEN oPn   = static_cast<HPEN>(SelectObject(hdc, btnPn));
-            HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
-            RoundRect(hdc, addBtnRect.left, addBtnRect.top, addBtnRect.right, addBtnRect.bottom, 6, 6);
-            SelectObject(hdc, oPn); SelectObject(hdc, oBr);
-            DeleteObject(btnPn);
-
-            HFONT btnFont = CreateFontW(13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+            HFONT btnFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+            HFONT plusFont = CreateFontW(11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
             HFONT oBtnFont = static_cast<HFONT>(SelectObject(hdc, btnFont));
+            SIZE lblSz = {};
+            GetTextExtentPoint32W(hdc, addLabel, (int)wcslen(addLabel), &lblSz);
+            const int plusW = 12, plusGap = 7;
+            const int btnW = addBtnRect.right - addBtnRect.left;
+            int bx = addBtnRect.left + std::max(6, (btnW - (plusW + plusGap + (int)lblSz.cx)) / 2);
             SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, RGB(240, 230, 255));
-            DrawTextW(hdc, LS(STR_BOOKMARK_ADD), -1,
-                      &addBtnRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            const COLORREF btnTxt = addHovered ? RGB(205, 218, 252) : SB_CLR_TEXT_DIM;
+
+            SelectObject(hdc, plusFont);
+            SetTextColor(hdc, addHovered ? RGB(150, 182, 250) : SB_CLR_TEXT_DIM);
+            RECT plusRc = { bx, addBtnRect.top, bx + plusW, addBtnRect.bottom };
+            DrawTextW(hdc, L"\xE710", 1, &plusRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE); // Add 글리프
+
+            SelectObject(hdc, btnFont);
+            SetTextColor(hdc, btnTxt);
+            RECT lblRc = { bx + plusW + plusGap, addBtnRect.top, addBtnRect.right - 6, addBtnRect.bottom };
+            DrawTextW(hdc, addLabel, -1, &lblRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
             SelectObject(hdc, oBtnFont);
+            DeleteObject(plusFont);
             DeleteObject(btnFont);
         }
 
@@ -8516,7 +8558,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             HFONT emptyFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
             oldFont = static_cast<HFONT>(SelectObject(hdc, emptyFont));
-            SetTextColor(hdc, RGB(100, 95, 110));
+            SetTextColor(hdc, SB_CLR_TEXT_MUTED);
             RECT emptyRect = { 12, sbTop + SIDEBAR_HEADER_H + 12, sbRight - 8, listBottom };
             DrawTextW(hdc, LS(STR_BOOKMARK_EMPTY), -1, &emptyRect, DT_LEFT | DT_TOP | DT_WORDBREAK);
             SelectObject(hdc, oldFont);
@@ -8531,6 +8573,8 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             HFONT itemFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
             oldFont = static_cast<HFONT>(SelectObject(hdc, itemFont));
+            HFONT glyphFont = CreateFontW(10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
 
             // 현재 위치의 목차 항목이 바뀌면 그 항목이 보이도록 목록 자동 스크롤
             const int activeIdx = GetActiveOutlineIdx();
@@ -8556,76 +8600,71 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                 // 목차: 현재 위치 항목 하나만, 사용자 북마크: 현재 페이지
                 const bool isActive = bm.isUserAdded ? (bm.pageIndex == g_currentPage)
                                                      : (i == activeIdx);
-                int itemLeft = 8 + bm.level * SIDEBAR_INDENT;
-                RECT itemRect = { 0, yy, sbRight, yy + SIDEBAR_ITEM_H };
+                int itemLeft = SIDEBAR_ITEM_LEFT + bm.level * SIDEBAR_INDENT;
+                const bool isHover = (i == g_sidebarHoverIdx);
 
                 if (yy + SIDEBAR_ITEM_H < contentTop) { yy += SIDEBAR_ITEM_H; continue; }
                 if (yy > listBottom) break;
 
-                if (i == g_sidebarHoverIdx)
-                {
-                    HBRUSH hoverBr = CreateSolidBrush(RGB(50, 48, 65));
-                    FillRect(hdc, &itemRect, hoverBr);
-                    DeleteObject(hoverBr);
-                }
-
                 // 목차와 사용자 북마크 사이 구분선
                 if (bm.isUserAdded && i > 0 && !g_bookmarks[i - 1].isUserAdded)
                 {
-                    RECT sepRect = { 8, yy, sbRight - 8, yy + 1 };
-                    HBRUSH sepBr = CreateSolidBrush(RGB(70, 65, 90));
+                    RECT sepRect = { 12, yy, sbRight - 12, yy + 1 };
+                    HBRUSH sepBr = CreateSolidBrush(SB_CLR_LINE);
                     FillRect(hdc, &sepRect, sepBr);
                     DeleteObject(sepBr);
                 }
 
+                // hover / 현재 항목: 좌우 여백을 둔 둥근 배경 + 왼쪽 강조 막대
+                RECT rowRc = { 6, yy + 2, sbRight - 6, yy + SIDEBAR_ITEM_H - 2 };
                 if (isActive)
                 {
-                    HBRUSH activeBr = CreateSolidBrush(RGB(45, 55, 80));
-                    FillRect(hdc, &itemRect, activeBr);
-                    DeleteObject(activeBr);
-
-                    RECT accentBar = { 0, yy + 2, 3, yy + SIDEBAR_ITEM_H - 2 };
-                    HBRUSH accentBr = CreateSolidBrush(RGB(100, 140, 220));
-                    FillRect(hdc, &accentBar, accentBr);
-                    DeleteObject(accentBr);
+                    SbRoundRect(hdc, rowRc, 6, SB_CLR_ACTIVE);
+                    SbRoundRect(hdc, 6.0f, (float)yy + 8, 3.0f, (float)SIDEBAR_ITEM_H - 16, 1.5f, SB_CLR_ACCENT);
                 }
+                else if (isHover)
+                    SbRoundRect(hdc, rowRc, 6, SB_CLR_HOVER);
 
                 if (bm.hasChildren)
                 {
-                    SetTextColor(hdc, RGB(130, 125, 145));
-                    RECT arrowRect = { itemLeft - 14, yy, itemLeft, yy + SIDEBAR_ITEM_H };
-                    DrawTextW(hdc, bm.isOpen ? L"\x25BC" : L"\x25B6", -1, &arrowRect,
+                    SelectObject(hdc, glyphFont);
+                    SetTextColor(hdc, isHover || isActive ? SB_CLR_TEXT_DIM : SB_CLR_TEXT_MUTED);
+                    RECT arrowRect = { itemLeft - 16, yy, itemLeft - 2, yy + SIDEBAR_ITEM_H };
+                    DrawTextW(hdc, bm.isOpen ? L"\xE70D" : L"\xE76C", 1, &arrowRect,  // ChevronDown / ChevronRight
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    SelectObject(hdc, itemFont);
                 }
 
-                SetTextColor(hdc, isActive ? RGB(200, 210, 240) :
-                    (i == g_sidebarHoverIdx ? RGB(220, 218, 228) : RGB(170, 168, 180)));
+                // 최상위 목차는 조금 더 밝게, 하위 단계는 한 톤 낮춰 계층이 보이도록
+                const COLORREF textClr = isActive ? RGB(214, 226, 255)
+                    : isHover ? SB_CLR_TEXT
+                    : (bm.level == 0 || bm.isUserAdded) ? RGB(196, 194, 208) : SB_CLR_TEXT_DIM;
 
-                // 사용자 북마크: 오른쪽에 × 삭제 버튼, 앞에 ★ 표시
-                int textRight = sbRight - 8;
+                // 사용자 북마크: 앞에 ★, hover 시 오른쪽에 휴지통
+                int textRight = sbRight - 12;
                 if (bm.isUserAdded)
                 {
-                    // 아이콘
-                    SetTextColor(hdc, RGB(255, 210, 80));
-                    RECT starRect = { itemLeft, yy, itemLeft + 16, yy + SIDEBAR_ITEM_H };
-                    DrawTextW(hdc, L"\x2605", -1, &starRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                    itemLeft += 16;
-                    textRight = sbRight - 22;
+                    SelectObject(hdc, glyphFont);
+                    SetTextColor(hdc, RGB(246, 196, 84));
+                    RECT starRect = { itemLeft - 2, yy, itemLeft + 14, yy + SIDEBAR_ITEM_H };
+                    DrawTextW(hdc, L"\xE735", 1, &starRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE); // FavoriteStarFill
+                    SelectObject(hdc, itemFont);
+                    itemLeft += 20;
+                    textRight = sbRight - 26;
 
                     // 삭제 버튼 (hover 시에만 표시)
-                    if (i == g_sidebarHoverIdx)
+                    if (isHover)
                     {
-                        RECT delRect = { sbRight - 22, yy + (SIDEBAR_ITEM_H - 15) / 2,
-                                         sbRight - 22 + 15, yy + (SIDEBAR_ITEM_H - 15) / 2 + 15 };
+                        RECT delRect = { sbRight - 23, yy + (SIDEBAR_ITEM_H - 15) / 2,
+                                         sbRight - 23 + 15, yy + (SIDEBAR_ITEM_H - 15) / 2 + 15 };
                         // 원본 아이콘이 검정이라 어두운 사이드바에서 보이도록 밝은 색으로 그림
                         // (아이콘 위에 커서가 있으면 삭제 동작임을 알리도록 빨간색)
                         DrawPngIconTinted(hdc, IDB_TRASH_PNG, delRect, 15,
-                            g_sidebarHoverTrash ? RGB(240, 90, 90) : RGB(220, 218, 228));
+                            g_sidebarHoverTrash ? RGB(240, 90, 90) : SB_CLR_TEXT_DIM);
                     }
-                    SetTextColor(hdc, isActive ? RGB(200, 210, 240) :
-                        (i == g_sidebarHoverIdx ? RGB(220, 218, 228) : RGB(170, 168, 180)));
                 }
 
+                SetTextColor(hdc, textClr);
                 RECT textRect = { itemLeft, yy, textRight, yy + SIDEBAR_ITEM_H };
                 DrawTextW(hdc, bm.title.c_str(), -1, &textRect,
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -8635,13 +8674,14 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
 
             SelectObject(hdc, oldFont);
             DeleteObject(itemFont);
+            DeleteObject(glyphFont);
             SelectClipRgn(hdc, nullptr);
             DeleteObject(clipRgn);
         }
     }
 
     // 오른쪽 구분선
-    HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(55, 50, 70));
+    HPEN borderPen = CreatePen(PS_SOLID, 1, SB_CLR_LINE);
     oldPen = static_cast<HPEN>(SelectObject(hdc, borderPen));
     MoveToEx(hdc, sbRight - 1, sbTop, nullptr);
     LineTo(hdc, sbRight - 1, sbBottom);
@@ -11995,6 +12035,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 return TRUE;
             }
 
+            // 사이드바 헤더 X 닫기 버튼 위: 손 커서
+            if (g_sidebarVisible)
+            {
+                RECT closeRc = GetSidebarCloseBtnRect();
+                if (PtInRect(&closeRc, pt))
+                {
+                    SetCursor(LoadCursor(nullptr, IDC_HAND));
+                    return TRUE;
+                }
+            }
+
             // 사이드바 북마크 × 삭제 버튼 위: 손 커서, 나머지 사이드바: 기본 커서
             if (g_laserMode && g_pdfDoc && pt.y >= TOOLBAR_HEIGHT)
             {
@@ -12684,7 +12735,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 // 펼침/접힘 토글 (자식이 있는 항목)
                 if (bm.hasChildren)
                 {
-                    int arrowLeft = 8 + bm.level * SIDEBAR_INDENT - 14;
+                    int arrowLeft = SIDEBAR_ITEM_LEFT + bm.level * SIDEBAR_INDENT - 16;
                     if (x < arrowLeft + 16)
                     {
                         bm.isOpen = !bm.isOpen;
