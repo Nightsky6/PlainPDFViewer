@@ -148,7 +148,26 @@
 		}
 	}
 
+	// Windows OCR 기본 언어: 앱 표시 언어와 같은 BCP-47 접두어
+	const wchar_t* DefaultWinLangPrefix()
+	{
+		switch (g_appLang)
+		{
+		case AppLang::Japanese:   return L"ja";
+		case AppLang::Chinese:    return L"zh";
+		case AppLang::Spanish:    return L"es";
+		case AppLang::French:     return L"fr";
+		case AppLang::German:     return L"de";
+		case AppLang::Portuguese: return L"pt";
+		case AppLang::Russian:    return L"ru";
+		case AppLang::English:    return L"en";
+		default:                  return L"ko";
+		}
+	}
+
 	// ── 언어 선택 대화상자 ───────────────────────────────────
+	enum { ENGINE_WIN = 0, ENGINE_TESS = 1 };
+
 	std::wstring LangDisplayName(const std::wstring& code)
 	{
 		struct E { const wchar_t* code; const wchar_t* name; };
@@ -162,41 +181,66 @@
 			if (code == e.code) return e.name;
 		return code;
 	}
-	constexpr int LD_W = 360, LD_H = 440, ROW_H = 30;
-	constexpr RECT LD_LIST = { 20, 98, LD_W - 20, LD_H - 80 };
+	constexpr int LD_W = 380, ROW_H = 30;
+	constexpr int HIT_TAB = 50; // HIT_TAB + 엔진
 
 	struct LangDlg
 	{
 		HWND wnd = nullptr;
 		bool done = false, ok = false;
-		std::vector<std::wstring> langs;
-		std::vector<char> sel;
-		std::vector<std::wstring> chosen;
+		bool canSwitch = true;      // 엔진 토글 표시 (Win32/ARM64는 Windows OCR만)
+		int engine = ENGINE_WIN;
+		std::vector<std::wstring> codes[2], names[2];
+		std::vector<char> sel[2];
 		int scroll = 0, hover = 0, pressed = 0;
+		int H = 0;
 	};
 	LangDlg* g_ld = nullptr;
 
-	int LdVisible() { return (LD_LIST.bottom - LD_LIST.top) / ROW_H; }
+	int LdHeight(bool canSwitch) { return canSwitch ? 484 : 440; }
+
+	RECT LdList()
+	{
+		const int top = g_ld->canSwitch ? 142 : 98;
+		return { 20, top, LD_W - 20, g_ld->H - 80 };
+	}
+
+	RECT LdTabRect(int engine)
+	{
+		const int mid = LD_W / 2;
+		return engine == ENGINE_WIN ? RECT{ 20, 100, mid, 132 } : RECT{ mid, 100, LD_W - 20, 132 };
+	}
+
+	const std::vector<std::wstring>& LdCodes() { return g_ld->codes[g_ld->engine]; }
+
+	int LdVisible() { RECT l = LdList(); return (l.bottom - l.top) / ROW_H; }
 
 	void LdClampScroll()
 	{
-		int maxS = std::max(0, (int)g_ld->langs.size() - LdVisible());
+		int maxS = std::max(0, (int)LdCodes().size() - LdVisible());
 		g_ld->scroll = std::max(0, std::min(g_ld->scroll, maxS));
 	}
 
 	RECT LdRowRect(int i)
 	{
-		int top = LD_LIST.top + (i - g_ld->scroll) * ROW_H;
-		return { LD_LIST.left, top, LD_LIST.right - 10, top + ROW_H };
+		RECT l = LdList();
+		int top = l.top + (i - g_ld->scroll) * ROW_H;
+		return { l.left, top, l.right - 10, top + ROW_H };
 	}
 
 	int LdHit(int x, int y)
 	{
 		POINT p = { x, y };
-		RECT r = BtnRect(LD_W, LD_H, 0, 2); if (PtInRect(&r, p)) return HIT_OK;
-		r = BtnRect(LD_W, LD_H, 1, 2);      if (PtInRect(&r, p)) return HIT_CANCEL;
+		RECT r = BtnRect(LD_W, g_ld->H, 0, 2); if (PtInRect(&r, p)) return HIT_OK;
+		r = BtnRect(LD_W, g_ld->H, 1, 2);      if (PtInRect(&r, p)) return HIT_CANCEL;
+		if (g_ld->canSwitch)
+			for (int e = 0; e < 2; ++e)
+			{
+				r = LdTabRect(e);
+				if (PtInRect(&r, p)) return HIT_TAB + e;
+			}
 		int vis = LdVisible();
-		for (int i = g_ld->scroll; i < (int)g_ld->langs.size() && i < g_ld->scroll + vis; ++i)
+		for (int i = g_ld->scroll; i < (int)LdCodes().size() && i < g_ld->scroll + vis; ++i)
 		{
 			r = LdRowRect(i);
 			if (PtInRect(&r, p)) return HIT_ROW + i;
@@ -204,16 +248,91 @@
 		return 0;
 	}
 
+	void LdDrawTabs(Gdiplus::Graphics& g)
+	{
+		using namespace Gdiplus;
+		FontFamily ff(L"Segoe UI");
+		Font f(&ff, 9, FontStyleBold, UnitPoint);
+		StringFormat sf;
+		sf.SetAlignment(StringAlignmentCenter);
+		sf.SetLineAlignment(StringAlignmentCenter);
+
+		RECT a = LdTabRect(ENGINE_WIN), b = LdTabRect(ENGINE_TESS);
+		RectF outer((float)a.left + 0.5f, (float)a.top + 0.5f, (float)(b.right - a.left) - 1.0f, (float)(a.bottom - a.top) - 1.0f);
+		GraphicsPath* op = RoundPath(outer, 6.0f);
+		SolidBrush track(Color(255, 240, 240, 240));
+		g.FillPath(&track, op);
+		delete op;
+
+		const wchar_t* labels[2] = { L"Windows OCR", L"Tesseract" };
+		for (int e = 0; e < 2; ++e)
+		{
+			RECT r = LdTabRect(e);
+			RectF rf((float)r.left + 3, (float)r.top + 3, (float)(r.right - r.left) - 6, (float)(r.bottom - r.top) - 6);
+			const bool on = (g_ld->engine == e);
+			if (on || g_ld->hover == HIT_TAB + e)
+			{
+				GraphicsPath* p = RoundPath(rf, 4.0f);
+				SolidBrush fill(on ? Color(255, 255, 255, 255) : Color(255, 228, 228, 228));
+				g.FillPath(&fill, p);
+				if (on)
+				{
+					Pen bd(Color(255, 210, 210, 210), 1.0f);
+					g.DrawPath(&bd, p);
+				}
+				delete p;
+			}
+			SolidBrush tb(on ? Color(255, 0, 103, 192) : Color(255, 90, 90, 90));
+			g.DrawString(labels[e], -1, &f, rf, &sf, &tb);
+		}
+	}
+
+	void LdDrawEmpty(Gdiplus::Graphics& g)
+	{
+		using namespace Gdiplus;
+		const wchar_t* msg = (g_ld->engine == ENGINE_WIN)
+			? S(L"설치된 Windows OCR 언어가 없습니다.\n\n설정 > 시간 및 언어 > 언어 및 지역에서 언어의 '언어 옵션'을 열고 '광학 문자 인식'을 설치해 주세요.",
+				L"No Windows OCR language is installed.\n\nOpen Settings > Time & language > Language & region, choose 'Language options' for a language and install 'Optical character recognition'.",
+				L"Windows OCR の言語がインストールされていません。\n\n設定 > 時刻と言語 > 言語と地域 で言語の「言語のオプション」を開き、「光学式文字認識」をインストールしてください。",
+				L"未安装 Windows OCR 语言。\n\n请在 设置 > 时间和语言 > 语言和区域 中打开语言的“语言选项”，并安装“光学字符识别”。",
+				L"No hay ningún idioma de OCR de Windows instalado.\n\nAbra Configuración > Hora e idioma > Idioma y región, elija 'Opciones de idioma' e instale 'Reconocimiento óptico de caracteres'.",
+				L"Aucune langue OCR Windows n'est installée.\n\nOuvrez Paramètres > Heure et langue > Langue et région, choisissez « Options de langue » et installez « Reconnaissance optique de caractères ».",
+				L"Es ist keine Windows-OCR-Sprache installiert.\n\nÖffnen Sie Einstellungen > Zeit und Sprache > Sprache und Region, wählen Sie „Sprachoptionen“ und installieren Sie „Optische Zeichenerkennung“.",
+				L"Nenhum idioma de OCR do Windows está instalado.\n\nAbra Configurações > Hora e idioma > Idioma e região, escolha 'Opções de idioma' e instale 'Reconhecimento óptico de caracteres'.",
+				L"Языки OCR Windows не установлены.\n\nОткройте Параметры > Время и язык > Язык и регион, выберите «Параметры языка» и установите «Оптическое распознавание символов».")
+			: S(L"Tesseract 언어 데이터(*.traineddata)가 없습니다.\n\n프로그램 폴더의 tessdata 폴더에 언어 파일을 넣어 주세요.",
+				L"No Tesseract language data (*.traineddata) was found.\n\nPlease put language files in the 'tessdata' folder next to the program.",
+				L"Tesseract の言語データ (*.traineddata) がありません。\n\nプログラムフォルダの tessdata フォルダに言語ファイルを置いてください。",
+				L"未找到 Tesseract 语言数据 (*.traineddata)。\n\n请将语言文件放入程序目录下的 tessdata 文件夹。",
+				L"No se encontraron datos de idioma de Tesseract (*.traineddata).\n\nColoque los archivos en la carpeta 'tessdata' junto al programa.",
+				L"Aucune donnée de langue Tesseract (*.traineddata) trouvée.\n\nPlacez les fichiers dans le dossier 'tessdata' à côté du programme.",
+				L"Keine Tesseract-Sprachdaten (*.traineddata) gefunden.\n\nLegen Sie die Dateien in den Ordner 'tessdata' neben dem Programm ab.",
+				L"Nenhum dado de idioma do Tesseract (*.traineddata) encontrado.\n\nColoque os arquivos na pasta 'tessdata' ao lado do programa.",
+				L"Языковые данные Tesseract (*.traineddata) не найдены.\n\nПоместите файлы в папку 'tessdata' рядом с программой.");
+		FontFamily ff(L"Segoe UI");
+		Font f(&ff, 9, FontStyleRegular, UnitPoint);
+		SolidBrush gray(Color(255, 95, 95, 95));
+		RECT l = LdList();
+		g.DrawString(msg, -1, &f, RectF((float)l.left + 8, (float)l.top + 12, (float)(l.right - l.left) - 16, (float)(l.bottom - l.top) - 12), nullptr, &gray);
+	}
+
 	void LdDraw(HDC hdc)
 	{
 		using namespace Gdiplus;
 		Graphics g(hdc);
-		DrawFrame(g, LD_W, LD_H, TitleStr(),
-			S(L"OCR 언어를 선택하세요 (여러 개 선택 가능)", L"Select OCR language(s) (multiple allowed)",
-			  L"OCR言語を選択してください (複数可)", L"请选择 OCR 语言 (可多选)",
-			  L"Seleccione idioma(s) de OCR (varios)", L"Choisissez la/les langue(s) OCR (plusieurs)",
-			  L"OCR-Sprache(n) auswählen (mehrere möglich)", L"Selecione o(s) idioma(s) do OCR (vários)",
-			  L"Выберите язык(и) OCR (можно несколько)"), true);
+		const bool multi = (g_ld->engine == ENGINE_TESS);
+		DrawFrame(g, LD_W, g_ld->H, TitleStr(), multi
+			? S(L"OCR 언어를 선택하세요 (여러 개 선택 가능)", L"Select OCR language(s) (multiple allowed)",
+				L"OCR言語を選択してください (複数可)", L"请选择 OCR 语言 (可多选)",
+				L"Seleccione idioma(s) de OCR (varios)", L"Choisissez la/les langue(s) OCR (plusieurs)",
+				L"OCR-Sprache(n) auswählen (mehrere möglich)", L"Selecione o(s) idioma(s) do OCR (vários)",
+				L"Выберите язык(и) OCR (можно несколько)")
+			: S(L"OCR 언어를 선택하세요", L"Select the OCR language",
+				L"OCR言語を選択してください", L"请选择 OCR 语言",
+				L"Seleccione el idioma de OCR", L"Choisissez la langue OCR",
+				L"OCR-Sprache auswählen", L"Selecione o idioma do OCR",
+				L"Выберите язык OCR"), true);
+		if (g_ld->canSwitch) LdDrawTabs(g);
 
 		FontFamily ff(L"Segoe UI");
 		Font f(&ff, 10, FontStyleRegular, UnitPoint);
@@ -221,12 +340,17 @@
 		StringFormat sf;
 		sf.SetLineAlignment(StringAlignmentCenter);
 
+		const auto& codes = LdCodes();
+		const auto& names = g_ld->names[g_ld->engine];
+		const auto& sel = g_ld->sel[g_ld->engine];
+		if (codes.empty()) LdDrawEmpty(g);
+
 		int vis = LdVisible();
-		for (int i = g_ld->scroll; i < (int)g_ld->langs.size() && i < g_ld->scroll + vis; ++i)
+		for (int i = g_ld->scroll; i < (int)codes.size() && i < g_ld->scroll + vis; ++i)
 		{
 			RECT r = LdRowRect(i);
 			bool hot = (g_ld->hover == HIT_ROW + i);
-			bool on = g_ld->sel[i] != 0;
+			bool on = sel[i] != 0;
 			if (hot)
 			{
 				SolidBrush hb(Color(255, 243, 246, 250));
@@ -236,52 +360,75 @@
 				delete p;
 			}
 			RectF cb((float)r.left + 8, (float)r.top + (ROW_H - 18) / 2.0f, 18, 18);
-			GraphicsPath* cp = RoundPath(cb, 4.0f);
-			if (on)
+			if (multi)
 			{
-				SolidBrush blue(Color(255, 0, 120, 212));
-				g.FillPath(&blue, cp);
-				Pen w(Color(255, 255, 255, 255), 2.0f);
-				w.SetLineJoin(LineJoinRound);
-				PointF pts[3] = { PointF(cb.X + 4.5f, cb.Y + 9.5f), PointF(cb.X + 7.8f, cb.Y + 13.0f), PointF(cb.X + 13.5f, cb.Y + 5.5f) };
-				g.DrawLines(&w, pts, 3);
+				GraphicsPath* cp = RoundPath(cb, 4.0f);
+				if (on)
+				{
+					SolidBrush blue(Color(255, 0, 120, 212));
+					g.FillPath(&blue, cp);
+					Pen w(Color(255, 255, 255, 255), 2.0f);
+					w.SetLineJoin(LineJoinRound);
+					PointF pts[3] = { PointF(cb.X + 4.5f, cb.Y + 9.5f), PointF(cb.X + 7.8f, cb.Y + 13.0f), PointF(cb.X + 13.5f, cb.Y + 5.5f) };
+					g.DrawLines(&w, pts, 3);
+				}
+				else
+				{
+					SolidBrush white(Color(255, 255, 255, 255));
+					g.FillPath(&white, cp);
+					Pen bd(Color(255, 150, 150, 150), 1.0f);
+					g.DrawPath(&bd, cp);
+				}
+				delete cp;
 			}
 			else
 			{
+				// 단일 선택: 라디오 버튼
 				SolidBrush white(Color(255, 255, 255, 255));
-				g.FillPath(&white, cp);
-				Pen bd(Color(255, 150, 150, 150), 1.0f);
-				g.DrawPath(&bd, cp);
+				g.FillEllipse(&white, cb);
+				Pen bd(on ? Color(255, 0, 120, 212) : Color(255, 150, 150, 150), on ? 1.5f : 1.0f);
+				g.DrawEllipse(&bd, cb);
+				if (on)
+				{
+					SolidBrush blue(Color(255, 0, 120, 212));
+					g.FillEllipse(&blue, cb.X + 4.5f, cb.Y + 4.5f, cb.Width - 9.0f, cb.Height - 9.0f);
+				}
 			}
-			delete cp;
-			g.DrawString(LangDisplayName(g_ld->langs[i]).c_str(), -1, &f, RectF((float)r.left + 38, (float)r.top, (float)(r.right - r.left) - 40, (float)ROW_H), &sf, &dark);
+			g.DrawString(names[i].c_str(), -1, &f, RectF((float)r.left + 38, (float)r.top, (float)(r.right - r.left) - 40, (float)ROW_H), &sf, &dark);
 		}
 
-		if ((int)g_ld->langs.size() > vis)
+		if ((int)codes.size() > vis)
 		{
-			float trackH = (float)(LD_LIST.bottom - LD_LIST.top);
-			float total = (float)g_ld->langs.size();
+			RECT l = LdList();
+			float trackH = (float)(l.bottom - l.top);
+			float total = (float)codes.size();
 			float thumbH = std::max(24.0f, trackH * vis / total);
 			float maxS = total - vis;
-			float ty = LD_LIST.top + (trackH - thumbH) * (maxS > 0 ? g_ld->scroll / maxS : 0.0f);
+			float ty = l.top + (trackH - thumbH) * (maxS > 0 ? g_ld->scroll / maxS : 0.0f);
 			SolidBrush tb(Color(255, 200, 200, 200));
-			GraphicsPath* tp = RoundPath(RectF((float)LD_LIST.right - 6, ty, 4, thumbH), 2.0f);
+			GraphicsPath* tp = RoundPath(RectF((float)l.right - 6, ty, 4, thumbH), 2.0f);
 			g.FillPath(&tb, tp);
 			delete tp;
 		}
 
-		DrawBtn(g, BtnRect(LD_W, LD_H, 0, 2), true, g_ld->hover == HIT_OK, S(L"확인", L"OK", L"OK", L"确定", L"Aceptar", L"OK", L"OK", L"OK", L"OK"));
-		DrawBtn(g, BtnRect(LD_W, LD_H, 1, 2), false, g_ld->hover == HIT_CANCEL, CancelLabel());
+		DrawBtn(g, BtnRect(LD_W, g_ld->H, 0, 2), true, g_ld->hover == HIT_OK, S(L"확인", L"OK", L"OK", L"确定", L"Aceptar", L"OK", L"OK", L"OK", L"OK"));
+		DrawBtn(g, BtnRect(LD_W, g_ld->H, 1, 2), false, g_ld->hover == HIT_CANCEL, CancelLabel());
 	}
 
 	void LdAccept()
 	{
-		g_ld->chosen.clear();
-		for (size_t i = 0; i < g_ld->langs.size(); ++i)
-			if (g_ld->sel[i]) g_ld->chosen.push_back(g_ld->langs[i]);
-		if (g_ld->chosen.empty()) { MessageBeep(MB_ICONWARNING); return; }
+		const auto& sel = g_ld->sel[g_ld->engine];
+		if (std::find(sel.begin(), sel.end(), (char)1) == sel.end()) { MessageBeep(MB_ICONWARNING); return; }
 		g_ld->ok = true;
 		g_ld->done = true;
+	}
+
+	void LdSetEngine(int e)
+	{
+		if (!g_ld->canSwitch || g_ld->engine == e) return;
+		g_ld->engine = e;
+		g_ld->scroll = 0;
+		InvalidateRect(g_ld->wnd, nullptr, FALSE);
 	}
 
 	LRESULT CALLBACK LangProc(HWND h, UINT m, WPARAM w, LPARAM l)
@@ -290,7 +437,7 @@
 		switch (m)
 		{
 		case WM_PAINT:
-			PaintBuffered(h, LD_W, LD_H, LdDraw);
+			PaintBuffered(h, LD_W, g_ld->H, LdDraw);
 			return 0;
 		case WM_ERASEBKGND:
 			return 1;
@@ -325,9 +472,12 @@
 				else if (hv >= HIT_ROW)
 				{
 					int i = hv - HIT_ROW;
-					g_ld->sel[i] = !g_ld->sel[i];
+					auto& sel = g_ld->sel[g_ld->engine];
+					if (g_ld->engine == ENGINE_TESS) sel[i] = !sel[i];
+					else { std::fill(sel.begin(), sel.end(), (char)0); sel[i] = 1; }
 					InvalidateRect(h, nullptr, FALSE);
 				}
+				else if (hv >= HIT_TAB) LdSetEngine(hv - HIT_TAB);
 			}
 			g_ld->pressed = 0;
 			return 0;
@@ -335,6 +485,7 @@
 		case WM_KEYDOWN:
 			if (w == VK_RETURN) { LdAccept(); return 0; }
 			if (w == VK_ESCAPE) { g_ld->done = true; return 0; }
+			if (w == VK_TAB) { LdSetEngine(1 - g_ld->engine); return 0; }
 			break;
 		case WM_NCHITTEST:
 		{
@@ -343,7 +494,8 @@
 			{
 				POINT p = { (short)LOWORD(l), (short)HIWORD(l) };
 				ScreenToClient(h, &p);
-				if (!LdHit(p.x, p.y) && !PtInRect(&LD_LIST, p)) return HTCAPTION;
+				RECT list = LdList();
+				if (!LdHit(p.x, p.y) && !PtInRect(&list, p)) return HTCAPTION;
 			}
 			return hit;
 		}
@@ -354,17 +506,36 @@
 		return DefWindowProcW(h, m, w, l);
 	}
 
-	bool ChooseLanguages(HWND parent, const std::vector<std::wstring>& langs, std::vector<std::wstring>& chosen)
+	// 대화상자 입출력 - 들어올 때 기본 선택, 나갈 때 사용자 선택
+	struct OcrChoice
+	{
+		int engine = ENGINE_WIN;
+		std::wstring winLang;                // Windows OCR 언어 태그
+		std::vector<std::wstring> tessLangs; // Tesseract 언어 코드
+	};
+
+	bool ChooseLanguages(HWND parent, const std::vector<WinOcrLang>& winLangs, const std::vector<std::wstring>& tessLangs,
+						 bool canSwitch, OcrChoice& choice)
 	{
 		LangDlg d;
-		d.langs = langs;
-		d.sel.assign(langs.size(), 0);
-		const std::wstring def = DefaultLangCode();
-		for (size_t i = 0; i < langs.size(); ++i)
-			if (langs[i] == def || langs[i] == L"eng") d.sel[i] = 1;
+		d.canSwitch = canSwitch;
+		d.engine = canSwitch ? choice.engine : ENGINE_WIN;
+		d.H = LdHeight(canSwitch);
+		for (const auto& wl : winLangs)
+		{
+			d.codes[ENGINE_WIN].push_back(wl.tag);
+			d.names[ENGINE_WIN].push_back(wl.name);
+			d.sel[ENGINE_WIN].push_back(_wcsicmp(wl.tag.c_str(), choice.winLang.c_str()) == 0 ? 1 : 0);
+		}
+		for (const auto& tl : tessLangs)
+		{
+			d.codes[ENGINE_TESS].push_back(tl);
+			d.names[ENGINE_TESS].push_back(LangDisplayName(tl));
+			d.sel[ENGINE_TESS].push_back(std::find(choice.tessLangs.begin(), choice.tessLangs.end(), tl) != choice.tessLangs.end() ? 1 : 0);
+		}
 		g_ld = &d;
 
-		d.wnd = CreatePopup(parent, L"PlainOcrLangPopup", LD_W, LD_H, LangProc);
+		d.wnd = CreatePopup(parent, L"PlainOcrLangPopup", LD_W, d.H, LangProc);
 		if (!d.wnd) { g_ld = nullptr; return false; }
 
 		if (parent) EnableWindow(parent, FALSE);
@@ -381,8 +552,23 @@
 		DestroyWindow(d.wnd);
 		if (parent) SetForegroundWindow(parent);
 		g_ld = nullptr;
-		if (d.ok) chosen = d.chosen;
-		return d.ok;
+		if (!d.ok) return false;
+
+		choice.engine = d.engine;
+		const auto& codes = d.codes[d.engine];
+		const auto& sel = d.sel[d.engine];
+		if (d.engine == ENGINE_WIN)
+		{
+			for (size_t i = 0; i < codes.size(); ++i)
+				if (sel[i]) choice.winLang = codes[i];
+		}
+		else
+		{
+			choice.tessLangs.clear();
+			for (size_t i = 0; i < codes.size(); ++i)
+				if (sel[i]) choice.tessLangs.push_back(codes[i]);
+		}
+		return true;
 	}
 
 	// ── 진행 창 ──────────────────────────────────────────────

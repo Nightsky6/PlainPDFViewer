@@ -132,6 +132,9 @@
     <ClInclude Include="OcrPdf.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="WinOcr.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="PlainPDFViewer.cpp">
@@ -207,6 +210,9 @@
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="OcrPdf.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="WinOcr.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
@@ -342,12 +348,5 @@
     <None Include="OcrPopupUi.h">
       <Filter>헤더 파일</Filter>
     </None>
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="ei_mid.txt" />
-    <Text Include="_blk1.txt" />
-    <Text Include="_blk2.txt" />
-    <Text Include="_blk3.txt" />
-    <Text Include="patch_ocr.txt" />
   </ItemGroup>
 </Project>

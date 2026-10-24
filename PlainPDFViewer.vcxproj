@@ -231,6 +231,7 @@
     <ClInclude Include="DocPropertiesDialog.h" />
     <ClInclude Include="ExportImage.h" />
     <ClInclude Include="OcrPdf.h" />
+    <ClInclude Include="WinOcr.h" />
     <ClInclude Include="GroupPanel.h" />
     <ClInclude Include="KeywordDialog.h" />
     <ClInclude Include="FindBar.h" />
@@ -272,6 +273,7 @@
     <ClCompile Include="DocPropertiesDialog.cpp" />
     <ClCompile Include="ExportImage.cpp" />
     <ClCompile Include="OcrPdf.cpp" />
+    <ClCompile Include="WinOcr.cpp" />
     <ClCompile Include="GroupPanel.cpp" />
     <ClCompile Include="KeywordDialog.cpp" />
     <ClCompile Include="FindBar.cpp" />
@@ -362,12 +364,5 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <DeploymentContent>true</DeploymentContent>
     </Content>
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="ei_mid.txt" />
-    <Text Include="patch_ocr.txt" />
-    <Text Include="_blk1.txt" />
-    <Text Include="_blk2.txt" />
-    <Text Include="_blk3.txt" />
   </ItemGroup>
 </Project>
