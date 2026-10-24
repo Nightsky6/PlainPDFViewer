@@ -744,19 +744,18 @@ void DrawFindHighlight(HDC hdc, const RECT& clientRect)
         double rLeft, rTop, rRight, rBottom;
         FPDFText_GetRect(g_textPage, ri, &rLeft, &rTop, &rRight, &rBottom);
 
+        // 반올림해 변환 (버림하면 상자가 왼쪽·위로 최대 1px 치우침)
         int sx1, sy1, sx2, sy2;
-        PdfToScreen(rLeft, rTop, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(g_currentPage), &sx1, &sy1);
-        PdfToScreen(rRight, rBottom, pageW, pageH, pgLeft, pgTop, g_zoom, GetEffectiveRotation(g_currentPage), &sx2, &sy2);
-        if (sx1 > sx2) std::swap(sx1, sx2);
-        if (sy1 > sy2) std::swap(sy1, sy2);
+        PdfRectToScreen(rLeft, rTop, rRight, rBottom, pageW, pageH,
+            pgLeft, pgTop, g_zoom, GetEffectiveRotation(g_currentPage), &sx1, &sy1, &sx2, &sy2);
 
-        int padY = std::max(2, (sy2 - sy1) * 15 / 100);
-        sy1 -= padY;
-        sy2 += padY;
-
-        int padX = std::max(2, (sy2 - sy1) * 8 / 100);
-        sx1 -= padX;
-        sx2 += padX;
+        // 글자 상자 둘레에 상하좌우 같은 여백. 테두리(2px)는 이 여백 안쪽에 그리므로
+        // 그 두께만큼 더해 글자와 테두리 사이가 항상 비도록 한다.
+        // (회전된 페이지에서도 줄 두께는 짧은 변이므로 그 기준으로 계산)
+        const int thin = std::min(sx2 - sx1, sy2 - sy1);
+        const int pad  = std::max(3, thin * 15 / 100) + 2;
+        sx1 -= pad; sx2 += pad;
+        sy1 -= pad; sy2 += pad;
 
         int cx1 = std::max(sx1, (int)vp.left);
         int cy1 = std::max(sy1, (int)vp.top);
@@ -778,12 +777,13 @@ void DrawFindHighlight(HDC hdc, const RECT& clientRect)
         DeleteObject(hBmp);
         DeleteDC(memDC);
 
-        HPEN pen = CreatePen(PS_SOLID, 2, RGB(50, 150, 225));
-        HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
-        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
-        Rectangle(hdc, sx1, sy1, sx2, sy2);
-        SelectObject(hdc, oldPen);
-        SelectObject(hdc, oldBrush);
-        DeleteObject(pen);
+        // 2px 테두리를 채움 영역 안쪽에 정확히 맞춰 그림
+        // (펜으로 Rectangle을 그리면 선이 경계 중앙에 걸쳐 오른쪽·아래가 1px 어긋남)
+        HBRUSH borderBr = CreateSolidBrush(RGB(50, 150, 225));
+        RECT br = { sx1, sy1, sx2, sy2 };
+        FrameRect(hdc, &br, borderBr);
+        InflateRect(&br, -1, -1);
+        FrameRect(hdc, &br, borderBr);
+        DeleteObject(borderBr);
     }
 }

@@ -18,9 +18,10 @@ struct PageLayoutInfo {
 
 // ── PDF 좌표 → 화면 좌표 변환 (인라인 유틸리티) ──────────────────────────────
 #include <algorithm>
-static inline void PdfToScreen(double pdfX, double pdfY, double pdfW, double pdfH,
-    int pgLeft, int pgTop, float zoom, int rotation,
-    int* outSX, int* outSY)
+#include <cmath>
+// 소수점 화면 좌표 (페이지 왼쪽 위 기준, 줌 적용)
+static inline void PdfToPageOffset(double pdfX, double pdfY, double pdfW, double pdfH,
+    float zoom, int rotation, double* outX, double* outY)
 {
     double sx, sy;
     switch (rotation) {
@@ -30,8 +31,33 @@ static inline void PdfToScreen(double pdfX, double pdfY, double pdfW, double pdf
     case 2: sx = pdfW - pdfX;  sy = pdfY;           break;
     case 3: sx = pdfH - pdfY;  sy = pdfW - pdfX;   break;
     }
-    *outSX = pgLeft + (int)(sx * zoom);
-    *outSY = pgTop  + (int)(sy * zoom);
+    *outX = sx * zoom;
+    *outY = sy * zoom;
+}
+
+// PDF 사각형 → 화면 사각형. 네 변을 반올림해 렌더링된 글자와 1px 이내로 맞추고
+// (x1,y1)이 왼쪽 위가 되도록 정렬해 돌려준다.
+static inline void PdfRectToScreen(double left, double top, double right, double bottom,
+    double pdfW, double pdfH, int pgLeft, int pgTop, float zoom, int rotation,
+    int* outX1, int* outY1, int* outX2, int* outY2)
+{
+    double ax, ay, bx, by;
+    PdfToPageOffset(left, top, pdfW, pdfH, zoom, rotation, &ax, &ay);
+    PdfToPageOffset(right, bottom, pdfW, pdfH, zoom, rotation, &bx, &by);
+    *outX1 = pgLeft + (int)std::lround((std::min)(ax, bx));
+    *outX2 = pgLeft + (int)std::lround((std::max)(ax, bx));
+    *outY1 = pgTop  + (int)std::lround((std::min)(ay, by));
+    *outY2 = pgTop  + (int)std::lround((std::max)(ay, by));
+}
+
+static inline void PdfToScreen(double pdfX, double pdfY, double pdfW, double pdfH,
+    int pgLeft, int pgTop, float zoom, int rotation,
+    int* outSX, int* outSY)
+{
+    double sx, sy;
+    PdfToPageOffset(pdfX, pdfY, pdfW, pdfH, zoom, rotation, &sx, &sy);
+    *outSX = pgLeft + (int)sx;
+    *outSY = pgTop  + (int)sy;
 }
 
 // ── PlainPDFViewer.cpp 공유 전역 ─────────────────────────────────────────────

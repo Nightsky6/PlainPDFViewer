@@ -3714,12 +3714,8 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
                 if (r.left >= r.right) continue;
 
                 int sx1, sy1, sx2, sy2;
-                PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx1, &sy1);
-                PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx2, &sy2);
-                if (sx1 > sx2) std::swap(sx1, sx2);
-                if (sy1 > sy2) std::swap(sy1, sy2);
+                PdfRectToScreen(r.left, r.top, r.right, r.bottom, pageW, pageH,
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx1, &sy1, &sx2, &sy2);
 
                 int cx1 = std::max(sx1, (int)vp.left);
                 int cy1 = std::max(sy1, (int)vp.top);
@@ -3853,12 +3849,8 @@ static void DrawUnderlines(HDC hdc, const RECT& clientRect)
                 if (r.left >= r.right) continue;
 
                 int sx1, sy1, sx2, sy2;
-                PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(ul.pageIndex), &sx1, &sy1);
-                PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(ul.pageIndex), &sx2, &sy2);
-                if (sx1 > sx2) std::swap(sx1, sx2);
-                if (sy1 > sy2) std::swap(sy1, sy2);
+                PdfRectToScreen(r.left, r.top, r.right, r.bottom, pageW, pageH,
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(ul.pageIndex), &sx1, &sy1, &sx2, &sy2);
 
                 int gap       = 2;
                 int thickness = std::max(1, std::min(2, (int)(1.0f * g_zoom)));
@@ -4007,12 +3999,8 @@ static void DrawStrikeouts(HDC hdc, const RECT& clientRect)
                 if (r.left >= r.right) continue;
 
                 int sx1, sy1, sx2, sy2;
-                PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(so.pageIndex), &sx1, &sy1);
-                PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(so.pageIndex), &sx2, &sy2);
-                if (sx1 > sx2) std::swap(sx1, sx2);
-                if (sy1 > sy2) std::swap(sy1, sy2);
+                PdfRectToScreen(r.left, r.top, r.right, r.bottom, pageW, pageH,
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(so.pageIndex), &sx1, &sy1, &sx2, &sy2);
 
                 const int soRot = GetEffectiveRotation(so.pageIndex);
                 int thickness = std::max(1, (int)(1.5f * g_zoom));
@@ -4170,12 +4158,8 @@ static void DrawSquigglies(HDC hdc, const RECT& clientRect)
                 if (r.left >= r.right) continue;
 
                 int sx1, sy1, sx2, sy2;
-                PdfToScreen(r.left, r.top, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(sq.pageIndex), &sx1, &sy1);
-                PdfToScreen(r.right, r.bottom, pageW, pageH,
-                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(sq.pageIndex), &sx2, &sy2);
-                if (sx1 > sx2) std::swap(sx1, sx2);
-                if (sy1 > sy2) std::swap(sy1, sy2);
+                PdfRectToScreen(r.left, r.top, r.right, r.bottom, pageW, pageH,
+                    pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(sq.pageIndex), &sx1, &sy1, &sx2, &sy2);
 
                 const int sqRot = GetEffectiveRotation(sq.pageIndex);
                 const bool vert = (sqRot == 1 || sqRot == 3);
@@ -7495,12 +7479,9 @@ static void DrawTextSelection(HDC hdc, const RECT& clientRect)
         if (cachedRects[ri].left >= cachedRects[ri].right) continue;
 
         int sx1, sy1, sx2, sy2;
-        PdfToScreen(cachedRects[ri].left, cachedRects[ri].top, pageW, pageH,
-            pgLeft, pgTop, g_zoom, GetEffectiveRotation(selPage), &sx1, &sy1);
-        PdfToScreen(cachedRects[ri].right, cachedRects[ri].bottom, pageW, pageH,
-            pgLeft, pgTop, g_zoom, GetEffectiveRotation(selPage), &sx2, &sy2);
-        if (sx1 > sx2) std::swap(sx1, sx2);
-        if (sy1 > sy2) std::swap(sy1, sy2);
+        const auto& rc = cachedRects[ri];
+        PdfRectToScreen(rc.left, rc.top, rc.right, rc.bottom, pageW, pageH,
+            pgLeft, pgTop, g_zoom, GetEffectiveRotation(selPage), &sx1, &sy1, &sx2, &sy2);
 
         int cx1 = std::max(sx1, (int)vp.left);
         int cy1 = std::max(sy1, (int)vp.top);
