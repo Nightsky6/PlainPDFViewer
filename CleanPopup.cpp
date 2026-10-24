@@ -1454,13 +1454,21 @@ namespace
             upd(g_ni.canRc, g_ni.canHov);
             TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hWnd, 0 };
             TrackMouseEvent(&tme);
-            if (changed) InvalidateRect(hWnd, nullptr, FALSE);
+            // 버튼 영역만 갱신 (전체 갱신 시 EDIT 영역까지 다시 그려져 깜빡임)
+            if (changed) {
+                InvalidateRect(hWnd, &g_ni.okRc,  FALSE);
+                InvalidateRect(hWnd, &g_ni.canRc, FALSE);
+            }
             SetCursor((g_ni.okHov || g_ni.canHov) ? g_curHand : g_curArrow);
             break;
         }
         case WM_MOUSELEAVE:
-            g_ni.okHov = g_ni.canHov = false;
-            InvalidateRect(hWnd, nullptr, FALSE);
+            // EDIT 위로 이동할 때도 발생하므로 호버 상태가 있을 때만 버튼 갱신
+            if (g_ni.okHov || g_ni.canHov) {
+                g_ni.okHov = g_ni.canHov = false;
+                InvalidateRect(hWnd, &g_ni.okRc,  FALSE);
+                InvalidateRect(hWnd, &g_ni.canRc, FALSE);
+            }
             break;
         case WM_LBUTTONUP:
         {
@@ -1537,7 +1545,7 @@ static bool RunNoteInput(HWND parent, const std::wstring& title, std::wstring& t
     EnableWindow(parent, FALSE);
     HWND hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOPMOST,
-        NI_CLASS_NAME, nullptr, WS_POPUP,
+        NI_CLASS_NAME, nullptr, WS_POPUP | WS_CLIPCHILDREN,
         x, y, NI_W, g_niH,
         parent, nullptr, g_hInstance, nullptr);
 
