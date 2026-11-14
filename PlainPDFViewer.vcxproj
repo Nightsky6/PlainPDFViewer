@@ -262,6 +262,7 @@
     <ClInclude Include="TextViewer.h" />
     <ClInclude Include="ToastDlg.h" />
     <ClInclude Include="Toolbar.h" />
+    <ClInclude Include="TextEdit.h" />
     <ClInclude Include="WindowsOps.h" />
     <ClInclude Include="WordCloud.h" />
     <ClInclude Include="WordFreqDialog.h" />
@@ -274,6 +275,7 @@
     <ClCompile Include="ExportImage.cpp" />
     <ClCompile Include="OcrPdf.cpp" />
     <ClCompile Include="WinOcr.cpp" />
+    <ClCompile Include="TextEdit.cpp" />
     <ClCompile Include="GroupPanel.cpp" />
     <ClCompile Include="KeywordDialog.cpp" />
     <ClCompile Include="FindBar.cpp" />
@@ -299,6 +301,7 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="compress.png" />
+    <Image Include="textedit.png" />
     <Image Include="jump.png" />
     <Image Include="lock.png" />
     <Image Include="plain.png" />

@@ -92,6 +92,7 @@
 #define IDB_NAV_PREV_PNG         1038
 #define IDB_NAV_NEXT_PNG         1039
 #define IDB_COMPRESS_PNG         1040
+#define IDB_TEXTEDIT_PNG         1041
 
 #define IDM_INK_MODE             32842
 #define IDM_INK_COLOR            32843
@@ -137,6 +138,7 @@
 #define IDM_COMPRESS            32853
 #define IDM_EXPORT_IMAGE        33100
 #define IDM_OCR                 33101
+#define IDM_TEXT_EDIT_MODE      33102
 #define IDM_TOGGLE_TOOLBAR      32860
 #define IDM_LANG_0              32844
 #define IDM_LANG_1              32845

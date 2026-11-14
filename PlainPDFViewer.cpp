@@ -21,6 +21,7 @@
 #include "Toolbar.h"
 #include "FindBar.h"
 #include "SelToolbar.h"
+#include "TextEdit.h"
 #include "WindowsOps.h"
 #include "Lang.h"
 #include <fpdfview.h>
@@ -2282,6 +2283,7 @@ void ClosePDF()
     g_selectedInkStroke = -1;
 
     if (g_pdfPage) { FPDF_ClosePage(g_pdfPage); g_pdfPage = nullptr; }
+    TextEdit::ForgetDocument(g_pdfDoc);
     if (g_pdfDoc)  { FPDF_CloseDocument(g_pdfDoc); g_pdfDoc = nullptr; }
     g_currentPage = 0;
     g_pageCount = 0;
@@ -2355,6 +2357,7 @@ static void CloseTab(HWND hWnd, int tabIndex)
             FPDF_ClosePage(g_pdfPage); g_pdfPage = nullptr;
         }
         DestroyFormFill();
+        TextEdit::ForgetDocument(g_pdfDoc);
         if (g_pdfDoc) { FPDF_CloseDocument(g_pdfDoc); g_pdfDoc = nullptr; }
         ClearPageCache();
         ClearThumbCache();
@@ -2375,6 +2378,7 @@ static void CloseTab(HWND hWnd, int tabIndex)
             FPDF_ClosePage(ts.pdfPage); ts.pdfPage = nullptr;
         }
         if (ts.formHandle) { FPDFDOC_ExitFormFillEnvironment(ts.formHandle); ts.formHandle = nullptr; }
+        TextEdit::ForgetDocument(ts.pdfDoc);
         if (ts.pdfDoc) { FPDF_CloseDocument(ts.pdfDoc); ts.pdfDoc = nullptr; }
         for (auto& e : ts.pageCache)
             if (e.hBmp) { DeleteObject(e.hBmp); e.hBmp = nullptr; }
@@ -6931,6 +6935,9 @@ static void SaveDocument(HWND hWnd, bool saveAs)
         }
     }
 
+    // 텍스트 편집 반영 — 페이지 오브젝트 인덱스가 바뀌기 전(서명 삽입·가림 적용 전)에 먼저 처리
+    TextEdit::ApplyPendingEdits(g_pdfDoc);
+
     // 하이라이트를 PDF 어노테이션으로 삽입 (밑줄은 메모리에서만 관리)
     EmbedHighlightAnnotations();
     EmbedNoteAnnotations();
@@ -9184,6 +9191,9 @@ static void RenderPage(HWND hWnd, HDC hdc, const RECT& clientRect)
 
     DeleteDC(loopDC);
 
+    // 텍스트 편집: 고친 글자 미리보기 + (편집 모드일 때) 점선 상자
+    TextEdit::Draw(hdc, clientRect);
+
     // 하이라이트 오버레이
     DrawHighlights(hdc, clientRect);
 
@@ -9748,7 +9758,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
 
         // 텍스트 박스 편집 중이면 액셀러레이터 차단 — Edit 컨트롤이 모든 키 처리
-        bool inTextBoxEdit = (g_hTextBoxEdit && GetFocus() == g_hTextBoxEdit);
+        // (텍스트 편집 모드의 입력창도 같다 — Enter가 '다음 찾기' 단축키로 가로채이지 않게)
+        bool inTextBoxEdit = (g_hTextBoxEdit && GetFocus() == g_hTextBoxEdit)
+                          || TextEdit::IsEditFocused();
         if (inTextBoxEdit)
         {
             TranslateMessage(&msg);
@@ -10388,7 +10400,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             g_highlightMode = !g_highlightMode;
             // 하이라이트 모드 켜면 손 도구 / 잉크 모드 해제
-            if (g_highlightMode) { g_handMode = false; g_inkMode = false; }
+            if (g_highlightMode) { g_handMode = false; g_inkMode = false; TextEdit::SetActive(hWnd, false); }
             InvalidateToolbarBaseCache();
             InvalidateRect(hWnd, nullptr, FALSE);
             break;
@@ -10415,7 +10427,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             g_inkMode = !g_inkMode;
             // 잉크 모드 켜면 손 도구 / 하이라이트 모드 해제
-            if (g_inkMode) { g_handMode = false; g_highlightMode = false; }
+            if (g_inkMode) { g_handMode = false; g_highlightMode = false; TextEdit::SetActive(hWnd, false); }
             g_isDrawingInk = false;
             g_inkStroke.clear();
             SetCursor(LoadCursor(nullptr, g_inkMode ? IDC_CROSS : IDC_ARROW));
@@ -10527,6 +10539,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case IDM_SAVE_AS:    SaveDocument(hWnd, true);                                    break;
         case IDM_PRINT:      PrintDocument(hWnd);                                        break;
         case IDM_COMPRESS:   ShowCompressPdfDialog(hWnd, g_filePath);                    break;
+        case IDM_TEXT_EDIT_MODE:
+        {
+            if (!g_pdfDoc) break;
+            const bool on = !TextEdit::IsActive();
+            if (on)
+            {
+                // 다른 마우스 모드와 텍스트 선택 해제
+                g_handMode = false; g_isPanning = false;
+                g_highlightMode = false;
+                g_inkMode = false; g_isDrawingInk = false; g_inkStroke.clear();
+                g_redactMode = false; g_isDraggingRedact = false;
+                g_shapeMode = 0; g_isDraggingShape = false;
+                g_hasSelection = g_isSelecting = false;
+                g_selCharStart = g_selCharEnd = -1;
+                g_selRectCache.invalidate();
+            }
+            TextEdit::SetActive(hWnd, on);
+            g_pageBaseDirty = true;
+            InvalidateToolbarBaseCache();
+            InvalidateRect(hWnd, nullptr, FALSE);
+            break;
+        }
         case IDM_EXPORT_IMAGE: ExportPagesAsImages(hWnd);                                break;
         case IDM_OCR:        OcrCurrentDocument(hWnd);                                   break;
         case IDM_PROPERTIES: DocPropertiesDialog::Show(hWnd, g_pdfDoc, g_filePath, g_pageCount); break;
@@ -10536,6 +10570,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             g_redactMode = !g_redactMode;
             // 모드 종료 시 드래그 상태도 초기화
             if (!g_redactMode) g_isDraggingRedact = false;
+            else TextEdit::SetActive(hWnd, false);
             HMENU hMenu = GetMenu(hWnd);
             if (hMenu) CheckMenuItem(hMenu, IDM_REDACT,
                 MF_BYCOMMAND | (g_redactMode ? MF_CHECKED : MF_UNCHECKED));
@@ -10550,6 +10585,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             int newMode = (LOWORD(wParam) == IDM_SHAPE_RECT) ? 1 : 2;
             g_shapeMode = (g_shapeMode == newMode) ? 0 : newMode; // 토글
             if (!g_shapeMode) g_isDraggingShape = false;
+            else TextEdit::SetActive(hWnd, false);
             HMENU hMenu = GetMenu(hWnd);
             if (hMenu) {
                 CheckMenuItem(hMenu, IDM_SHAPE_RECT,   MF_BYCOMMAND | (g_shapeMode == 1 ? MF_CHECKED : MF_UNCHECKED));
@@ -10836,6 +10872,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case IDM_HAND_TOOL:
             g_handMode = !g_handMode;
             g_isPanning = false;
+            if (g_handMode) TextEdit::SetActive(hWnd, false);
             InvalidateToolbarBaseCache();
             InvalidateRect(hWnd, nullptr, TRUE);
             break;
@@ -11557,9 +11594,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         }
 
+        // 텍스트 편집 모드: 상자 호버 표시
+        TextEdit::OnMouseMove(hWnd, x, y);
+
         // 폼 필드 마우스 이동 전달 (커서 모양 변경 등)
         if (g_formHandle && g_pdfDoc && g_pdfPage && !g_isPanning && !g_isSelecting
-            && !g_redactMode && !g_inkMode)
+            && !g_redactMode && !g_inkMode && !TextEdit::IsActive())
         {
             RECT fCr; GetClientRect(hWnd, &fCr);
             const RECT fVp = GetViewportRect(fCr);
@@ -12059,6 +12099,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 return TRUE;
             }
 
+            // 텍스트 편집 모드: 상자 위에서는 I-빔, 나머지 뷰포트는 화살표
+            if (TextEdit::IsActive() && g_pdfDoc)
+            {
+                RECT cr; GetClientRect(hWnd, &cr);
+                const RECT vp = GetViewportRect(cr);
+                if (PtInRect(&vp, pt))
+                {
+                    SetCursor(LoadCursor(nullptr, TextEdit::HitTest(pt.x, pt.y) ? IDC_IBEAM : IDC_ARROW));
+                    return TRUE;
+                }
+            }
+
             // Redact 모드: 십자 커서
             if (g_redactMode && g_pdfDoc && pt.y >= GetBelowToolbarY())
             {
@@ -12246,6 +12298,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             break; // 툴바 영역이면 이후 처리 불필요
         }
+
+        // 텍스트 편집 모드: 뷰포트 클릭은 상자 편집만 처리하고 다른 동작(선택·폼 등)은 막는다
+        if (TextEdit::OnLButtonDown(hWnd, x, y))
+            break;
+        TextEdit::CommitEdit(); // 뷰포트 밖(사이드바·탭 등)을 누르면 입력 확정
 
         // 폼 필드 클릭: 폼이 활성화되어 있고 현재 페이지 위를 클릭했을 때 최우선 처리
         if (g_formHandle && g_pdfDoc && g_pdfPage && !g_redactMode && !g_inkMode)
@@ -13159,6 +13216,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int mx = GET_X_LPARAM(lParam);
         int my = GET_Y_LPARAM(lParam);
 
+        // 텍스트 편집 모드: 더블클릭도 한 번 클릭과 같게 처리 (단어 선택 등 방지)
+        if (TextEdit::OnLButtonDown(hWnd, mx, my))
+            break;
+
         // 사이드바 사용자 북마크 더블클릭 → 이름 바꾸기
         if (g_pdfDoc && g_sidebarVisible && g_sidebarTab == TAB_BOOKMARKS && mx < SIDEBAR_WIDTH)
         {
@@ -13330,6 +13391,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         ScreenToClient(hWnd, &ptClient);
         int mx = ptClient.x;
         int my = ptClient.y;
+
+        // 텍스트 편집 모드: 상자 위 우클릭 → 편집/삭제/되돌리기
+        if (TextEdit::OnContextMenu(hWnd, mx, my, ptScreen))
+            return 0;
 
         {
             RECT crTh; GetClientRect(hWnd, &crTh);
@@ -14305,6 +14370,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 ToggleSlideshow(hWnd);
                 break;
             }
+            if (TextEdit::IsActive())
+            {
+                TextEdit::SetActive(hWnd, false);
+                InvalidateToolbarBaseCache();
+                InvalidateRect(hWnd, nullptr, FALSE);
+                break;
+            }
             if (g_shapeMode != 0)
             {
                 g_shapeMode = 0;
@@ -14910,6 +14982,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 FPDF_ClosePage(ts.pdfPage); ts.pdfPage = nullptr;
             }
             if (ts.formHandle) { FPDFDOC_ExitFormFillEnvironment(ts.formHandle); ts.formHandle = nullptr; }
+            TextEdit::ForgetDocument(ts.pdfDoc);
             if (ts.pdfDoc) { FPDF_CloseDocument(ts.pdfDoc); ts.pdfDoc = nullptr; }
             for (auto& e : ts.pageCache)
                 if (e.hBmp) { DeleteObject(e.hBmp); e.hBmp = nullptr; }

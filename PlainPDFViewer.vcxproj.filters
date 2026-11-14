@@ -51,6 +51,9 @@
     <ClInclude Include="Toolbar.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="TextEdit.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="FindBar.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
@@ -215,6 +218,9 @@
     <ClCompile Include="WinOcr.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="TextEdit.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="PlainPDFViewer.rc">
@@ -331,6 +337,9 @@
       <Filter>리소스 파일</Filter>
     </Image>
     <Image Include="compress.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="textedit.png">
       <Filter>리소스 파일</Filter>
     </Image>
   </ItemGroup>

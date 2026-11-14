@@ -3,6 +3,7 @@
 
 #include "framework.h"
 #include "Toolbar.h"
+#include "TextEdit.h"
 
 bool g_toolbarHidden = false;
 
@@ -137,6 +138,8 @@ const ToolbarButton g_toolbarButtons[] = {
     { nullptr, nullptr, IDM_GOTO_PAGE,        true,  IDB_JUMP_PNG,      0,  0  },
     { L"|",    nullptr, 0,                    false, 0,                 0,  0  },
     { nullptr, nullptr, IDM_COMPRESS,         true,  IDB_COMPRESS_PNG,  0,  0  },
+    { L"|",    nullptr, 0,                    false, 0,                 0,  0  },
+    { nullptr, nullptr, IDM_TEXT_EDIT_MODE,   true,  IDB_TEXTEDIT_PNG,  0,  0  },
 };
 const int g_toolbarButtonCount = _countof(g_toolbarButtons);
 
@@ -164,6 +167,7 @@ const wchar_t* GetToolbarTooltip(int index)
     case 26: return LS(STR_TIP_BTN_SLIDESHOW);
     case 28: return LS(STR_TIP_BTN_GOTO);
     case 30: return LS(STR_TIP_BTN_COMPRESS);
+    case 32: return LS(STR_TIP_BTN_TEXTEDIT);
     default: return (index >= 0 && index < g_toolbarButtonCount) ? g_toolbarButtons[index].tooltip : nullptr;
     }
 }
@@ -451,7 +455,8 @@ static void DrawToolbarContent(HDC hdc, const RECT& clientRect, int hoverBtn)
                     || ((btn.commandId == IDM_AUTO_SCROLL)       && g_autoScrolling                       && enabled)
                     || ((btn.commandId == IDM_SLIDESHOW)         && g_slideshowActive                     && enabled)
                     || ((btn.commandId == IDM_HIGHLIGHT_MODE)    && g_highlightMode                       && enabled)
-                    || ((btn.commandId == IDM_INK_MODE)         && g_inkMode                               && enabled);
+                    || ((btn.commandId == IDM_INK_MODE)         && g_inkMode                               && enabled)
+                    || ((btn.commandId == IDM_TEXT_EDIT_MODE)   && TextEdit::IsActive()                    && enabled);
 
         if (hovered || active)
         {
