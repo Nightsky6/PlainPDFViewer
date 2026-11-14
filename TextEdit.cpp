@@ -508,13 +508,42 @@ namespace
         return RGB(255 - GetRValue(c), 255 - GetGValue(c), 255 - GetBValue(c));
     }
 
+    // 사각형 바로 바깥 둘레의 화면 색 중 가장 많은 색 = 글자 뒤 배경색.
+    // (노란 강조, 색칠된 표 칸 등에서 흰 상자 대신 그 색으로 덮기 위함. 야간 모드의 반전 색도 그대로 얻는다)
+    COLORREF SampleBackground(HDC hdc, const RECT& r)
+    {
+        std::map<COLORREF, int> count;
+        auto sample = [&](int x, int y) {
+            const COLORREF c = GetPixel(hdc, x, y);
+            if (c != CLR_INVALID) ++count[c];
+        };
+        const int w = r.right - r.left, h = r.bottom - r.top;
+        for (int i = 0; i <= 10; ++i)
+        {
+            const int x = r.left + w * i / 10;
+            sample(x, r.top - 1);
+            sample(x, r.bottom);
+        }
+        for (int i = 0; i <= 4; ++i)
+        {
+            const int y = r.top + h * i / 4;
+            sample(r.left - 1, y);
+            sample(r.right, y);
+        }
+        COLORREF best = g_darkMode ? RGB(0, 0, 0) : RGB(255, 255, 255);
+        int bestN = 0;
+        for (const auto& [c, n] : count)
+            if (n > bestN) { best = c; bestN = n; }
+        return best;
+    }
+
     // 고친 글자 미리보기: 원래 글자를 바탕색으로 덮고 새 글자를 같은 기준선에 그린다.
     // 미리보기와 새 글자가 차지하는 영역을 돌려준다.
     RECT DrawPreview(HDC hdc, const TextObj& o, const PendingEdit& e, const PageGeo& g)
     {
         RECT cover = GlyphRect(o, g);
         InflateRect(&cover, 2, 2); // 안티앨리어싱으로 번진 가장자리까지 덮는다
-        HBRUSH bg = CreateSolidBrush(g_darkMode ? RGB(0, 0, 0) : RGB(255, 255, 255));
+        HBRUSH bg = CreateSolidBrush(SampleBackground(hdc, cover));
         FillRect(hdc, &cover, bg);
         // 딸린 밑줄/취소선도 덮는다
         for (const Deco& d : o.decos)
