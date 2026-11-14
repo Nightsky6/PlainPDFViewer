@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_ES    L"No se pudo guardar porque otro programa está usando el archivo.\nCierre ese programa e inténtelo de nuevo."
 #define STR_SAVE_RELOAD_FAIL_ES L"No se puede reabrir el archivo después de guardar."
 #define STR_SAVE_CHANGES_CONFIRM_ES L"Hay cambios sin guardar.\n¿Salir sin guardar?"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_ES L"'%s' tiene cambios sin guardar.\n¿Cerrar sin guardar?"
 #define STR_SAVE_CHANGES_TITLE_ES   L"Guardar"
 #define STR_SAVE_DIALOG_CONFIRM_ES  L"¿Guardar cambios?"
 #define STR_FILE_OPEN_FAIL_ES   L"No se puede abrir el archivo."

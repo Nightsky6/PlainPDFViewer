@@ -2337,6 +2337,19 @@ static void SwitchToTab(HWND hWnd, int tabIndex)
     InvalidateRect(hWnd, nullptr, TRUE);
 }
 
+// 사용자가 탭을 닫을 때(X 버튼·가운데 클릭·탭 닫기 단축키): 저장하지 않은 변경이 있으면 묻는다.
+// 닫아도 되면 true. (암호 입력 취소 등 내부에서 닫는 경우에는 부르지 않는다)
+static bool ConfirmCloseTab(HWND hWnd, int tabIndex)
+{
+    if (tabIndex < 0 || tabIndex >= (int)g_tabs.size()) return false;
+    TextEdit::CommitEdit(); // 열려 있는 텍스트 편집 입력창도 변경으로 친다
+    const bool dirty = (tabIndex == g_activeTab) ? g_dirty : g_tabs[tabIndex].dirty;
+    if (!dirty) return true;
+    WCHAR msg[1024];
+    swprintf_s(msg, LS(STR_SAVE_CHANGES_CLOSE_TAB_FMT), GetTabTitle(g_tabs[tabIndex]).c_str());
+    return CleanPopup::Show(hWnd, LS(STR_SAVE_CHANGES_TITLE), msg, true);
+}
+
 static void CloseTab(HWND hWnd, int tabIndex)
 {
     if (tabIndex < 0 || tabIndex >= (int)g_tabs.size()) return;
@@ -10988,7 +11001,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             AddNewTab(hWnd);
             break;
         case IDM_CLOSE_TAB:
-            CloseTab(hWnd, g_activeTab);
+            if (ConfirmCloseTab(hWnd, g_activeTab))
+                CloseTab(hWnd, g_activeTab);
             break;
         case IDM_NEXT_TAB:
             if (g_tabs.size() > 1)
@@ -12682,7 +12696,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (tabHit >= 0)
             {
                 if (closeBtn)
-                    CloseTab(hWnd, tabHit);
+                {
+                    if (ConfirmCloseTab(hWnd, tabHit))
+                        CloseTab(hWnd, tabHit);
+                }
                 else
                     SwitchToTab(hWnd, tabHit);
                 break;
@@ -13344,7 +13361,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             bool closeBtn = false;
             int tabHit = HitTestTabBar(mx, my, &closeBtn);
-            if (tabHit >= 0)
+            if (tabHit >= 0 && ConfirmCloseTab(hWnd, tabHit))
                 CloseTab(hWnd, tabHit);
         }
     }
@@ -14921,6 +14938,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_CLOSE:
     {
+        // 열려 있는 텍스트 편집 입력창도 변경으로 친다 (탭 상태 저장 전에 확정)
+        TextEdit::CommitEdit();
         // 현재 탭 상태 저장
         if (g_activeTab >= 0 && g_activeTab < (int)g_tabs.size())
             SaveTabState(g_tabs[g_activeTab]);

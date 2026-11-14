@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_EN    L"Failed to save because another program is using the file.\nPlease close that program and try again."
 #define STR_SAVE_RELOAD_FAIL_EN L"Cannot reopen the file after saving."
 #define STR_SAVE_CHANGES_CONFIRM_EN L"You have unsaved changes.\nQuit without saving?"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_EN L"'%s' has unsaved changes.\nClose without saving?"
 #define STR_SAVE_CHANGES_TITLE_EN   L"Save"
 #define STR_SAVE_DIALOG_CONFIRM_EN  L"Save changes?"
 #define STR_FILE_OPEN_FAIL_EN   L"Cannot open the file."

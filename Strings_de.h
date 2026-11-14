@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_DE    L"Speichern fehlgeschlagen, da die Datei von einem anderen Programm verwendet wird.\nBitte schließen Sie dieses Programm und versuchen Sie es erneut."
 #define STR_SAVE_RELOAD_FAIL_DE L"Datei kann nach dem Speichern nicht erneut geöffnet werden."
 #define STR_SAVE_CHANGES_CONFIRM_DE L"Es gibt ungespeicherte Änderungen.\nOhne Speichern beenden?"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_DE L"„%s“ enthält ungespeicherte Änderungen.\nOhne Speichern schließen?"
 #define STR_SAVE_CHANGES_TITLE_DE   L"Speichern"
 #define STR_SAVE_DIALOG_CONFIRM_DE  L"Änderungen speichern?"
 #define STR_FILE_OPEN_FAIL_DE   L"Datei kann nicht geöffnet werden."

@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_JA    L"別のプログラムがファイルを使用しているため、保存できませんでした。\nそのプログラムを閉じてから再度保存してください。"
 #define STR_SAVE_RELOAD_FAIL_JA L"保存後にファイルを再度開けません。"
 #define STR_SAVE_CHANGES_CONFIRM_JA L"未保存の変更があります。\n保存せずに終了しますか？"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_JA L"「%s」に保存されていない変更があります。\n保存せずに閉じますか？"
 #define STR_SAVE_CHANGES_TITLE_JA   L"保存"
 #define STR_SAVE_DIALOG_CONFIRM_JA  L"変更内容を保存しますか？"
 #define STR_FILE_OPEN_FAIL_JA   L"ファイルを開けません。"

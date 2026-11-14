@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_FR    L"Impossible d'enregistrer car le fichier est utilisé par un autre programme.\nVeuillez fermer ce programme et réessayer."
 #define STR_SAVE_RELOAD_FAIL_FR L"Impossible de rouvrir le fichier après l'enregistrement."
 #define STR_SAVE_CHANGES_CONFIRM_FR L"Des modifications non enregistrées existent.\nQuitter sans enregistrer ?"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_FR L"« %s » contient des modifications non enregistrées.\nFermer sans enregistrer ?"
 #define STR_SAVE_CHANGES_TITLE_FR   L"Enregistrer"
 #define STR_SAVE_DIALOG_CONFIRM_FR  L"Enregistrer les modifications ?"
 #define STR_FILE_OPEN_FAIL_FR   L"Impossible d'ouvrir le fichier."

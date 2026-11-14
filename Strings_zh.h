@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_ZH    L"因其他程序正在使用该文件，保存失败。\n请关闭该程序后重试。"
 #define STR_SAVE_RELOAD_FAIL_ZH L"保存后无法重新打开文件。"
 #define STR_SAVE_CHANGES_CONFIRM_ZH L"存在未保存的更改。\n不保存直接退出？"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_ZH L"“%s”有未保存的更改。\n不保存就关闭吗？"
 #define STR_SAVE_CHANGES_TITLE_ZH   L"保存"
 #define STR_SAVE_DIALOG_CONFIRM_ZH  L"是否保存更改？"
 #define STR_FILE_OPEN_FAIL_ZH   L"无法打开文件。"

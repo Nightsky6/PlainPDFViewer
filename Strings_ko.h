@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_KO    L"다른 프로그램이 파일을 사용 중이어서 저장에 실패했습니다.\n해당 프로그램을 닫은 후 다시 저장해 주세요."
 #define STR_SAVE_RELOAD_FAIL_KO L"저장 후 파일을 다시 열 수 없습니다."
 #define STR_SAVE_CHANGES_CONFIRM_KO L"저장하지 않은 변경 내역이 있습니다.\n저장 없이 종료하시겠습니까?"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_KO L"'%s'에 저장하지 않은 변경 내역이 있습니다.\n저장 없이 닫으시겠습니까?"
 #define STR_SAVE_CHANGES_TITLE_KO   L"저장"
 #define STR_SAVE_DIALOG_CONFIRM_KO  L"변경된 내용을 저장하시겠습니까?"
 #define STR_FILE_OPEN_FAIL_KO   L"파일을 열 수 없습니다."

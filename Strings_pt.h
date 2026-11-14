@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_PT    L"Não foi possível salvar porque outro programa está usando o arquivo.\nFeche esse programa e tente novamente."
 #define STR_SAVE_RELOAD_FAIL_PT L"Não é possível reabrir o arquivo após salvar."
 #define STR_SAVE_CHANGES_CONFIRM_PT L"Há alterações não salvas.\nSair sem salvar?"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_PT L"'%s' tem alterações não salvas.\nFechar sem salvar?"
 #define STR_SAVE_CHANGES_TITLE_PT   L"Salvar"
 #define STR_SAVE_DIALOG_CONFIRM_PT  L"Salvar alterações?"
 #define STR_FILE_OPEN_FAIL_PT   L"Não é possível abrir o arquivo."

@@ -30,6 +30,7 @@
 #define STR_SAVE_REPLACE_WARN_RU    L"Не удалось сохранить, так как файл используется другой программой.\nЗакройте эту программу и повторите попытку."
 #define STR_SAVE_RELOAD_FAIL_RU L"Не удалось повторно открыть файл после сохранения."
 #define STR_SAVE_CHANGES_CONFIRM_RU L"Есть несохранённые изменения.\nВыйти без сохранения?"
+#define STR_SAVE_CHANGES_CLOSE_TAB_FMT_RU L"В «%s» есть несохранённые изменения.\nЗакрыть без сохранения?"
 #define STR_SAVE_CHANGES_TITLE_RU   L"Сохранить"
 #define STR_SAVE_DIALOG_CONFIRM_RU  L"Сохранить изменения?"
 #define STR_FILE_OPEN_FAIL_RU   L"Не удалось открыть файл."
