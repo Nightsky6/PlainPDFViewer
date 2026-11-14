@@ -20,6 +20,9 @@ namespace TextEdit
     // 페이지 위에 편집 미리보기와 (편집 모드일 때) 점선 상자를 그린다
     void Draw(HDC hdc, const RECT& clientRect);
 
+    // 메인 창 WM_PAINT에서 BeginPaint 직후 호출: 입력창과 서식 막대 영역을 그리기에서 뺀다
+    void ExcludeEditorFromPaint(HWND hWnd, HDC hdc);
+
     // (x, y)가 편집 가능한 상자 위인지
     bool HitTest(int x, int y);
 

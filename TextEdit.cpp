@@ -1457,6 +1457,18 @@ namespace TextEdit
         LayoutEditor(vp);
     }
 
+    void ExcludeEditorFromPaint(HWND hWnd, HDC hdc)
+    {
+        for (HWND h : { s_hEdit, s_hBar })
+        {
+            if (!h || !IsWindowVisible(h) || GetParent(h) != hWnd) continue;
+            RECT r;
+            GetWindowRect(h, &r);
+            MapWindowPoints(nullptr, hWnd, reinterpret_cast<POINT*>(&r), 2);
+            ExcludeClipRect(hdc, r.left, r.top, r.right, r.bottom);
+        }
+    }
+
     bool HitTest(int x, int y)
     {
         int p, o;

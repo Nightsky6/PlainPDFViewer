@@ -11063,6 +11063,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
+        // 텍스트 편집 입력창·서식 막대 위는 덮어 그리지 않는다
+        // (메인 창에 WS_CLIPCHILDREN이 없어 백버퍼 복사가 자식 창을 지워 버린다)
+        TextEdit::ExcludeEditorFromPaint(hWnd, hdc);
         RECT cr;
         GetClientRect(hWnd, &cr);
         int cw = cr.right, ch = cr.bottom;
