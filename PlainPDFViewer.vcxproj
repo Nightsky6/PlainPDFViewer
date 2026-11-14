@@ -295,7 +295,6 @@
     <ClCompile Include="WordFreqDialog.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="PdfThumbnailProvider\PdfThumbnailProvider.rc" />
     <ResourceCompile Include="PlainPDFViewer.rc" />
   </ItemGroup>
   <ItemGroup>

@@ -217,9 +217,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="PdfThumbnailProvider\PdfThumbnailProvider.rc">
-      <Filter>리소스 파일</Filter>
-    </ResourceCompile>
     <ResourceCompile Include="PlainPDFViewer.rc">
       <Filter>리소스 파일</Filter>
     </ResourceCompile>
