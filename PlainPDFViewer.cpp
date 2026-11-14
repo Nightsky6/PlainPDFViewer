@@ -3667,6 +3667,16 @@ static void BuildAnnotRects(FPDF_TEXTPAGE textPage,
 
 // ─── 하이라이트 그리기
 
+// 선택된 주석의 테두리 펜: 3px 선 + 2px 틈의 촘촘한 점선
+// (GDI 기본 PS_DASH는 18px 선 + 6px 틈이라 듬성듬성해 보인다)
+static HPEN CreateSelectionPen(COLORREF color)
+{
+    static const DWORD kPattern[] = { 3, 2 };
+    LOGBRUSH lb = { BS_SOLID, color, 0 };
+    HPEN pen = ExtCreatePen(PS_COSMETIC | PS_USERSTYLE, 1, &lb, _countof(kPattern), kPattern);
+    return pen ? pen : CreatePen(PS_DOT, 1, color);
+}
+
 static void DrawHighlights(HDC hdc, const RECT& clientRect)
 {
     if (g_highlights.empty() || !g_pdfDoc || g_pageLayouts.empty()) return;
@@ -3752,7 +3762,7 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
 
                 if (isSelected)
                 {
-                    HPEN selPen = CreatePen(PS_DASH, 1, RGB(40, 120, 255));
+                    HPEN selPen = CreateSelectionPen(RGB(40, 120, 255));
                     HPEN oPen = static_cast<HPEN>(SelectObject(hdc, selPen));
                     HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
                     Rectangle(hdc, cx1 - 1, cy1 - 1, cx2 + 1, cy2 + 1);
@@ -3907,7 +3917,7 @@ static void DrawUnderlines(HDC hdc, const RECT& clientRect)
 
                 if (isSelected)
                 {
-                    HPEN selPen = CreatePen(PS_DASH, 1, RGB(40, 120, 255));
+                    HPEN selPen = CreateSelectionPen(RGB(40, 120, 255));
                     HPEN oPen2 = static_cast<HPEN>(SelectObject(hdc, selPen));
                     HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
                     Rectangle(hdc, sx1 - 1, sy1 - 1, sx2 + 1, sy2 + 1);
@@ -4054,7 +4064,7 @@ static void DrawStrikeouts(HDC hdc, const RECT& clientRect)
 
                 if (isSelected)
                 {
-                    HPEN selPen = CreatePen(PS_DASH, 1, RGB(40, 120, 255));
+                    HPEN selPen = CreateSelectionPen(RGB(40, 120, 255));
                     HPEN oPen2 = static_cast<HPEN>(SelectObject(hdc, selPen));
                     HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
                     Rectangle(hdc, sx1 - 1, sy1 - 1, sx2 + 1, sy2 + 1);
@@ -4237,7 +4247,7 @@ static void DrawSquigglies(HDC hdc, const RECT& clientRect)
 
                 if (isSelected)
                 {
-                    HPEN selPen = CreatePen(PS_DASH, 1, RGB(40, 120, 255));
+                    HPEN selPen = CreateSelectionPen(RGB(40, 120, 255));
                     HPEN oSel = static_cast<HPEN>(SelectObject(hdc, selPen));
                     HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
                     Rectangle(hdc, sx1 - 1, sy1 - 1, sx2 + 1, sy2 + 1);
@@ -5226,7 +5236,7 @@ static void DrawSignatures(HDC hdc, const RECT& clientRect)
 
         // 선택 시 테두리 + 핸들
         if (si == g_selectedSig) {
-            HPEN pen = CreatePen(PS_DASH, 1, RGB(0, 120, 212));
+            HPEN pen = CreateSelectionPen(RGB(0, 120, 212));
             HPEN old = (HPEN)SelectObject(hdc, pen);
             HBRUSH nb = (HBRUSH)GetStockObject(NULL_BRUSH);
             HBRUSH ob = (HBRUSH)SelectObject(hdc, nb);
