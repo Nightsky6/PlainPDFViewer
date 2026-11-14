@@ -678,6 +678,22 @@ namespace
 	}
 }
 
+// 정보 창과 같은 페이드 효과 (같은 시간, 같은 부드러운 가감속).
+// 투명도만 바꾸므로 메시지를 처리하지 않아도 DWM이 화면에 반영한다.
+static void FadeWindow(HWND h, bool fadeIn, int durationMs)
+{
+	const ULONGLONG start = GetTickCount64();
+	for (;;)
+	{
+		const int elapsed = (int)(GetTickCount64() - start);
+		float t = std::min(1.0f, (float)elapsed / durationMs);
+		t = t * t * (3.0f - 2.0f * t);
+		SetLayeredWindowAttributes(h, 0, (BYTE)(255 * (fadeIn ? t : 1.0f - t)), LWA_ALPHA);
+		if (elapsed >= durationMs) break;
+		Sleep(16);
+	}
+}
+
 bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentPage,
 					 const std::vector<int>& rotations, std::mutex& pdfiumMtx, PrintDialogResult& out)
 {
@@ -746,7 +762,7 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 
 	RECT wr = { 0, 0, DLG_CW, DLG_CH };
 	const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
-	const DWORD exStyle = WS_EX_DLGMODALFRAME;
+	const DWORD exStyle = WS_EX_DLGMODALFRAME | WS_EX_LAYERED; // 페이드 인/아웃용
 	AdjustWindowRectEx(&wr, style, FALSE, exStyle);
 	int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
 	int x = 100, y = 100;
@@ -835,8 +851,12 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	SetTimer(h, 1, 60, nullptr);
 
 	if (parent) EnableWindow(parent, FALSE);
+	// 투명하게 띄운 뒤 내용을 모두 그려 두고 서서히 나타낸다
+	SetLayeredWindowAttributes(h, 0, 0, LWA_ALPHA);
 	ShowWindow(h, SW_SHOW);
 	SetForegroundWindow(h);
+	RedrawWindow(h, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+	FadeWindow(h, true, 220);
 
 	MSG msg;
 	while (!s.done && GetMessageW(&msg, nullptr, 0, 0) > 0)
@@ -849,6 +869,7 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	}
 
 	KillTimer(h, 1);
+	if (IsWindow(h)) FadeWindow(h, false, 300); // 인쇄·취소·닫기 모두 서서히 사라진다
 	if (parent) EnableWindow(parent, TRUE);
 	DestroyWindow(h);
 	if (parent) SetForegroundWindow(parent);
