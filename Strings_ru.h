@@ -169,6 +169,8 @@
 #define STR_CTX_TEXT_EDIT_RU L"Изменить"
 #define STR_CTX_TEXT_DELETE_RU L"Удалить"
 #define STR_CTX_TEXT_RESTORE_RU L"Восстановить исходный"
+#define STR_TEXTEDIT_FONT_AUTO_RU L"Авто"
+#define STR_TEXTEDIT_NO_GLYPH_RU L"В этом шрифте нет некоторых символов; будет использован Malgun Gothic"
 #define STR_STATUS_READY_RU         L"  Готово"
 #define STR_PM_BTN_PREV_RU          L"◀ Вверх"
 #define STR_PM_BTN_NEXT_RU          L"Вниз ▶"

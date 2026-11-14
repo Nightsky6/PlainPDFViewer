@@ -169,6 +169,8 @@
 #define STR_CTX_TEXT_EDIT_FR L"Modifier"
 #define STR_CTX_TEXT_DELETE_FR L"Supprimer"
 #define STR_CTX_TEXT_RESTORE_FR L"Rétablir l'original"
+#define STR_TEXTEDIT_FONT_AUTO_FR L"Automatique"
+#define STR_TEXTEDIT_NO_GLYPH_FR L"Certains caractères manquent dans cette police ; Malgun Gothic sera utilisée"
 #define STR_STATUS_READY_FR         L"  Prêt"
 #define STR_PM_BTN_PREV_FR          L"◀ Monter"
 #define STR_PM_BTN_NEXT_FR          L"Descendre ▶"

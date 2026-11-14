@@ -169,6 +169,8 @@
 #define STR_CTX_TEXT_EDIT_ZH L"编辑"
 #define STR_CTX_TEXT_DELETE_ZH L"删除"
 #define STR_CTX_TEXT_RESTORE_ZH L"恢复原样"
+#define STR_TEXTEDIT_FONT_AUTO_ZH L"自动"
+#define STR_TEXTEDIT_NO_GLYPH_ZH L"此字体缺少部分字符，将使用 Malgun Gothic 保存"
 #define STR_STATUS_READY_ZH         L"  就绪"
 #define STR_PM_BTN_PREV_ZH          L"◀ 上移"
 #define STR_PM_BTN_NEXT_ZH          L"下移 ▶"

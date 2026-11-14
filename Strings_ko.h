@@ -169,6 +169,8 @@
 #define STR_CTX_TEXT_EDIT_KO L"편집"
 #define STR_CTX_TEXT_DELETE_KO L"삭제"
 #define STR_CTX_TEXT_RESTORE_KO L"원래대로 되돌리기"
+#define STR_TEXTEDIT_FONT_AUTO_KO L"자동"
+#define STR_TEXTEDIT_NO_GLYPH_KO L"이 글꼴에 없는 글자가 있어 맑은 고딕으로 저장됩니다"
 #define STR_STATUS_READY_KO         L"  준비"
 #define STR_PM_BTN_PREV_KO          L"◀ 앞으로"
 #define STR_PM_BTN_NEXT_KO          L"뒤로 ▶"

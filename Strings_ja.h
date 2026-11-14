@@ -169,6 +169,8 @@
 #define STR_CTX_TEXT_EDIT_JA L"編集"
 #define STR_CTX_TEXT_DELETE_JA L"削除"
 #define STR_CTX_TEXT_RESTORE_JA L"元に戻す"
+#define STR_TEXTEDIT_FONT_AUTO_JA L"自動"
+#define STR_TEXTEDIT_NO_GLYPH_JA L"このフォントにない文字があるため Malgun Gothic で保存されます"
 #define STR_STATUS_READY_JA         L"  準備完了"
 #define STR_PM_BTN_PREV_JA          L"◀ 上へ"
 #define STR_PM_BTN_NEXT_JA          L"下へ ▶"

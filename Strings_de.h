@@ -169,6 +169,8 @@
 #define STR_CTX_TEXT_EDIT_DE L"Bearbeiten"
 #define STR_CTX_TEXT_DELETE_DE L"Löschen"
 #define STR_CTX_TEXT_RESTORE_DE L"Original wiederherstellen"
+#define STR_TEXTEDIT_FONT_AUTO_DE L"Automatisch"
+#define STR_TEXTEDIT_NO_GLYPH_DE L"Einige Zeichen fehlen in dieser Schrift; Malgun Gothic wird verwendet"
 #define STR_STATUS_READY_DE         L"  Bereit"
 #define STR_PM_BTN_PREV_DE          L"◀ Nach oben"
 #define STR_PM_BTN_NEXT_DE          L"Nach unten ▶"

@@ -7,8 +7,10 @@
 //
 // 글꼴: PDF에 들어 있는 글꼴은 대개 문서에 쓰인 글자만 담은 일부분이라 새 글자를 그릴 수 없다.
 // 그래서 고친 오브젝트는 시스템 글꼴로 다시 만든다.
-//  - 영문/숫자/기호(ASCII)만 있으면 표준 글꼴 Helvetica (파일에 넣지 않음, 미리보기는 Arial)
-//  - 그 밖의 글자가 있으면 맑은 고딕을 쓰인 글자만 남겨 서브셋으로 넣는다 (미리보기도 맑은 고딕)
+//  - "자동": 영문/숫자/기호(ASCII)만 있으면 표준 글꼴 Helvetica (파일에 넣지 않음, 미리보기는 Arial),
+//            그 밖의 글자가 있으면 맑은 고딕
+//  - 사용자가 고른 글꼴: 그 글꼴. 단, 입력한 글자 중 그 글꼴에 없는 글자가 있으면 맑은 고딕
+//  - 넣는 글꼴은 쓰인 글자만 남긴 서브셋으로 만든다 (CreateFontPackage)
 
 #include "framework.h"
 #include "PlainPDFViewer.h"
@@ -17,9 +19,12 @@
 #include <fpdf_edit.h>
 #include <fpdf_text.h>
 #include <fontsub.h>
+#include <commctrl.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <cwchar>
 #include <map>
 #include <mutex>
 #include <set>
@@ -61,13 +66,35 @@ namespace
         std::vector<TextObj> objs;
     };
 
+    // 사용자가 고른 모양
+    struct EditStyle
+    {
+        std::wstring face;      // 빈 문자열 = 자동
+        float        size = 0;  // 포인트, 0 = 원래 크기
+        bool         bold = false;
+    };
+
+    bool SameStyle(const EditStyle& a, const EditStyle& b)
+    {
+        return a.face == b.face && std::fabs(a.size - b.size) < 0.01f && a.bold == b.bold;
+    }
+
+    // 실제로 쓸 글꼴 (미리보기와 저장이 같은 결과를 쓰도록 편집 확정 때 정해 둔다)
+    struct Resolved
+    {
+        bool         standard = false; // true = 표준 글꼴 Helvetica (미리보기는 Arial)
+        std::wstring face;             // GDI 글꼴 이름
+        bool         bold = false;
+    };
+
     struct PendingEdit
     {
         int          page = -1;
         int          objIndex = -1;
         std::wstring original;   // 저장할 때 같은 오브젝트인지 확인하는 데 쓴다
         std::wstring text;
-        bool         bold = false;
+        EditStyle    style;
+        Resolved     res;
         std::vector<Deco> decos;
     };
 
@@ -84,6 +111,8 @@ namespace
         int    rot = 0;
     };
 
+    const wchar_t* const kFallbackFace = L"Malgun Gothic";
+
     std::map<FPDF_DOCUMENT, DocState> s_docs;
     bool  s_active    = false;
     int   s_hoverPage = -1;
@@ -96,7 +125,20 @@ namespace
     FPDF_DOCUMENT s_editDoc    = nullptr;
     int           s_editPage   = -1;
     int           s_editObj    = -1;
+    float         s_editOrigSize = 0;   // 원래 글자 크기 (포인트)
     bool          s_finishing  = false;
+
+    // 입력창 위 서식 막대
+    HWND  s_hBar       = nullptr;
+    HWND  s_hFontCombo = nullptr;
+    HWND  s_hSizeCombo = nullptr;
+    HWND  s_hBoldBtn   = nullptr;
+    HWND  s_hWarn      = nullptr;
+    HFONT s_uiFont     = nullptr;
+    HFONT s_uiBoldFont = nullptr;
+
+    const UINT WM_TE_CHECKFOCUS = WM_APP + 0x351;
+    const int  kBarPad = 4, kRowH = 26, kWarnH = 18;
 
     // 저장 후에도 PDFium이 글꼴 데이터를 참조할 수 있으므로 다음 저장까지 보관
     std::vector<std::vector<unsigned char>> s_fontKeepAlive;
@@ -145,6 +187,146 @@ namespace
             && std::fabs(m.b) <= 0.01f * m.a
             && std::fabs(m.c) <= 0.01f * m.d;
     }
+
+    // ── 시스템 글꼴 도우미 (GDI) ────────────────────────────────────────────
+
+    const DWORD TAG_TTCF = 0x66637474; // 'ttcf'
+    const DWORD TAG_OS2  = 0x322F534F; // 'OS/2'
+    const DWORD TAG_GLYF = 0x66796C67; // 'glyf'
+
+    unsigned BE16(const unsigned char* p) { return (unsigned)p[0] << 8 | p[1]; }
+    unsigned BE32(const unsigned char* p) { return (unsigned)p[0] << 24 | (unsigned)p[1] << 16 | (unsigned)p[2] << 8 | p[3]; }
+
+    // 글꼴 하나를 메모리 DC에 골라 둔 상태 (GetFontData 등을 쓰기 위함)
+    struct FontDC
+    {
+        HDC dc = nullptr; HFONT font = nullptr; HGDIOBJ old = nullptr;
+        FontDC(const std::wstring& face, bool bold, int height = -64)
+        {
+            dc = CreateCompatibleDC(nullptr);
+            LOGFONTW lf = {};
+            lf.lfHeight = height;
+            lf.lfWeight = bold ? FW_BOLD : FW_NORMAL;
+            lf.lfCharSet = DEFAULT_CHARSET;
+            lf.lfOutPrecision = OUT_TT_ONLY_PRECIS;
+            wcsncpy_s(lf.lfFaceName, face.c_str(), _TRUNCATE);
+            font = CreateFontIndirectW(&lf);
+            if (dc && font) old = SelectObject(dc, font);
+        }
+        ~FontDC()
+        {
+            if (dc && old) SelectObject(dc, old);
+            if (font) DeleteObject(font);
+            if (dc) DeleteDC(dc);
+        }
+        bool ok() const { return dc && font; }
+    };
+
+    // OS/2 표의 값 (없으면 -1)
+    int ReadOS2U16(HDC dc, DWORD offset)
+    {
+        unsigned char b[2];
+        if (GetFontData(dc, TAG_OS2, offset, b, 2) != 2) return -1;
+        return (int)BE16(b);
+    }
+
+    // PDF에 넣어도 되는 글꼴인지 (fsType: 2 = 제한된 라이선스, 0x200 = 비트맵만 허용)
+    bool EmbeddingAllowed(HDC dc)
+    {
+        const int fsType = ReadOS2U16(dc, 8);
+        if (fsType < 0) return true;
+        if (fsType & 0x0200) return false;
+        if ((fsType & 0x000E) == 0x0002) return false;
+        return true;
+    }
+
+    // 진짜 굵은 꼴이 설치돼 있는지 (없으면 GDI가 흉내 낸 굵기라 PDF에 넣을 수 없다)
+    bool FaceHasRealBold(const std::wstring& face)
+    {
+        static std::map<std::wstring, bool> cache;
+        auto it = cache.find(face);
+        if (it != cache.end()) return it->second;
+        FontDC f(face, true);
+        const bool yes = f.ok() && ReadOS2U16(f.dc, 4) >= 600; // usWeightClass
+        cache[face] = yes;
+        return yes;
+    }
+
+    // text의 글자가 모두 그 글꼴에 있는지
+    bool FaceHasGlyphs(const std::wstring& face, bool bold, const std::wstring& text)
+    {
+        if (text.empty()) return true;
+        FontDC f(face, bold);
+        if (!f.ok()) return false;
+        std::vector<WORD> idx(text.size());
+        if (GetGlyphIndicesW(f.dc, text.c_str(), (int)text.size(), idx.data(),
+                GGI_MARK_NONEXISTING_GLYPHS) == GDI_ERROR)
+            return false;
+        for (size_t i = 0; i < text.size(); ++i)
+            if (idx[i] == 0xFFFF && !iswspace(text[i])) return false;
+        return true;
+    }
+
+    int CALLBACK EnumFontProc(const LOGFONTW* lf, const TEXTMETRICW*, DWORD type, LPARAM lp)
+    {
+        if ((type & TRUETYPE_FONTTYPE) && lf->lfFaceName[0] && lf->lfFaceName[0] != L'@')
+            reinterpret_cast<std::set<std::wstring>*>(lp)->insert(lf->lfFaceName);
+        return 1;
+    }
+
+    // 고를 수 있는 설치된 글꼴 (처음 한 번만 만든다).
+    // TrueType 윤곽선(glyf)이 있고 PDF에 넣는 것이 허용된 글꼴만 남긴다.
+    const std::vector<std::wstring>& InstalledFonts()
+    {
+        static std::vector<std::wstring> list;
+        static bool built = false;
+        if (built) return list;
+        built = true;
+
+        std::set<std::wstring> names;
+        HDC dc = CreateCompatibleDC(nullptr);
+        LOGFONTW lf = {};
+        lf.lfCharSet = DEFAULT_CHARSET;
+        EnumFontFamiliesExW(dc, &lf, EnumFontProc, (LPARAM)&names, 0);
+        DeleteDC(dc);
+
+        for (const auto& n : names)
+        {
+            FontDC f(n, false);
+            if (!f.ok()) continue;
+            if (GetFontData(f.dc, TAG_GLYF, 0, nullptr, 0) == GDI_ERROR) continue;
+            if (!EmbeddingAllowed(f.dc)) continue;
+            list.push_back(n);
+        }
+        std::sort(list.begin(), list.end(), [](const std::wstring& a, const std::wstring& b) {
+            return CompareStringEx(LOCALE_NAME_USER_DEFAULT, NORM_IGNORECASE,
+                a.c_str(), -1, b.c_str(), -1, nullptr, nullptr, 0) == CSTR_LESS_THAN;
+        });
+        return list;
+    }
+
+    Resolved Resolve(const std::wstring& text, const EditStyle& st)
+    {
+        Resolved r;
+        if (st.face.empty())
+        {
+            if (IsAsciiText(text)) { r.standard = true; r.face = L"Arial"; }
+            else r.face = kFallbackFace;
+            r.bold = st.bold;
+            return r;
+        }
+        if (!FaceHasGlyphs(st.face, st.bold, text))
+        {
+            r.face = kFallbackFace;
+            r.bold = st.bold;
+            return r;
+        }
+        r.face = st.face;
+        r.bold = st.bold && FaceHasRealBold(st.face);
+        return r;
+    }
+
+    // ── 페이지 오브젝트 ──────────────────────────────────────────────────────
 
     // 현재 문서(g_pdfDoc)의 페이지 텍스트 오브젝트 목록 (처음 요청할 때 한 번만 읽는다)
     PageObjs* EnsurePage(int pi)
@@ -278,10 +460,19 @@ namespace
         return r;
     }
 
-    double EmPixels(const TextObj& o)
+    // 원래 글자 크기 (포인트). 가로로 선 텍스트이므로 세로 배율은 m.d
+    float OrigSizePt(const TextObj& o) { return o.fontSize * o.m.d; }
+
+    float EffSizePt(const TextObj& o, const EditStyle& st)
     {
-        // 가로로 선 텍스트이므로 세로 배율은 m.d
-        return std::max(1.0, (double)o.fontSize * o.m.d * g_zoom);
+        return st.size > 0 ? st.size : OrigSizePt(o);
+    }
+
+    EditStyle DefaultStyle(const TextObj& o)
+    {
+        EditStyle st;
+        st.bold = o.bold;
+        return st;
     }
 
     PendingEdit* FindEdit(DocState& ds, int page, int objIndex)
@@ -291,18 +482,24 @@ namespace
         return nullptr;
     }
 
-    // 오브젝트의 글자를 text로 정한다 (빈 문자열 = 삭제, 원래 글자 = 편집 취소)
-    void SetObjText(DocState& ds, int page, const TextObj& o, const std::wstring& text)
+    // 오브젝트의 글자와 모양을 정한다 (빈 문자열 = 삭제, 원래 글자+기본 모양 = 편집 취소)
+    void SetObjEdit(DocState& ds, int page, const TextObj& o, const std::wstring& text, const EditStyle& style)
     {
         PendingEdit* e = FindEdit(ds, page, o.objIndex);
-        const std::wstring& before = e ? e->text : o.text;
-        if (text == before) return;
-        if (text == o.text)
-            ds.edits.erase(ds.edits.begin() + (e - ds.edits.data())); // 원래대로 → 대기 목록에서 뺀다
-        else if (e)
-            e->text = text;
-        else
-            ds.edits.push_back({ page, o.objIndex, o.text, text, o.bold, o.decos });
+        if (text == o.text && SameStyle(style, DefaultStyle(o)))
+        {
+            if (e)
+            {
+                ds.edits.erase(ds.edits.begin() + (e - ds.edits.data())); // 원래대로 → 대기 목록에서 뺀다
+                g_dirty = true;
+            }
+            return;
+        }
+        if (e && e->text == text && SameStyle(e->style, style)) return;
+
+        const Resolved res = Resolve(text, style);
+        if (e) { e->text = text; e->style = style; e->res = res; }
+        else ds.edits.push_back({ page, o.objIndex, o.text, text, style, res, o.decos });
         g_dirty = true;
     }
 
@@ -313,7 +510,7 @@ namespace
 
     // 고친 글자 미리보기: 원래 글자를 바탕색으로 덮고 새 글자를 같은 기준선에 그린다.
     // 미리보기와 새 글자가 차지하는 영역을 돌려준다.
-    RECT DrawPreview(HDC hdc, const TextObj& o, const std::wstring& text, const PageGeo& g)
+    RECT DrawPreview(HDC hdc, const TextObj& o, const PendingEdit& e, const PageGeo& g)
     {
         RECT cover = GlyphRect(o, g);
         InflateRect(&cover, 2, 2); // 안티앨리어싱으로 번진 가장자리까지 덮는다
@@ -330,14 +527,15 @@ namespace
             UnionRect(&cover, &cover, &dr);
         }
         DeleteObject(bg);
+        const std::wstring& text = e.text;
         if (text.empty()) return cover;
 
         // 화면 회전(시계 방향 90° 단위)에 맞춰 글자 방향을 돌린다 (lfEscapement는 반시계 방향)
         const int esc = ((4 - g.rot) % 4) * 900;
-        HFONT font = CreateFontW(-(int)std::lround(EmPixels(o)), 0, esc, esc, o.bold ? FW_BOLD : FW_NORMAL,
+        const double emPx = std::max(1.0, (double)EffSizePt(o, e.style) * g_zoom);
+        HFONT font = CreateFontW(-(int)std::lround(emPx), 0, esc, esc, e.res.bold ? FW_BOLD : FW_NORMAL,
             FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
-            CLIP_DEFAULT_PRECIS | CLIP_LH_ANGLES, ANTIALIASED_QUALITY, 0,
-            IsAsciiText(text) ? L"Arial" : L"Malgun Gothic");
+            CLIP_DEFAULT_PRECIS | CLIP_LH_ANGLES, ANTIALIASED_QUALITY, 0, e.res.face.c_str());
         HFONT oldFont = (HFONT)SelectObject(hdc, font);
 
         double ox, oy;
@@ -447,34 +645,132 @@ namespace
         if (s_hMain) InvalidateRect(s_hMain, nullptr, FALSE);
     }
 
+    // ── 입력창 + 서식 막대 ───────────────────────────────────────────────────
+
+    const TextObj* EditingObj()
+    {
+        auto it = s_docs.find(s_editDoc);
+        if (it == s_docs.end() || s_editPage < 0 || s_editPage >= (int)it->second.pages.size()) return nullptr;
+        const auto& objs = it->second.pages[s_editPage].objs;
+        if (s_editObj < 0 || s_editObj >= (int)objs.size()) return nullptr;
+        return &objs[s_editObj];
+    }
+
+    bool InEditor(HWND h)
+    {
+        return h && s_hEdit && (h == s_hEdit || (s_hBar && (h == s_hBar || IsChild(s_hBar, h))));
+    }
+
+    std::wstring WindowText(HWND h)
+    {
+        const int len = GetWindowTextLengthW(h);
+        std::wstring s(len, L'\0');
+        if (len > 0) GetWindowTextW(h, &s[0], len + 1);
+        return s;
+    }
+
+    std::wstring FormatSize(float pt)
+    {
+        wchar_t buf[32];
+        swprintf_s(buf, L"%g", std::round(pt * 10.0f) / 10.0f);
+        return buf;
+    }
+
+    std::wstring SelectedFace()
+    {
+        const int sel = (int)SendMessageW(s_hFontCombo, CB_GETCURSEL, 0, 0);
+        if (sel <= 0) return L"";
+        const int len = (int)SendMessageW(s_hFontCombo, CB_GETLBTEXTLEN, sel, 0);
+        std::wstring s(len > 0 ? len : 0, L'\0');
+        if (len > 0) SendMessageW(s_hFontCombo, CB_GETLBTEXT, sel, (LPARAM)&s[0]);
+        return s;
+    }
+
+    // 서식 막대의 현재 값. sizeText가 있으면 크기 칸 대신 그 값을 쓴다 (목록에서 막 고른 경우)
+    EditStyle ReadEditorStyle(const std::wstring* sizeText = nullptr)
+    {
+        EditStyle st;
+        st.face = SelectedFace();
+        const std::wstring s = sizeText ? *sizeText : WindowText(s_hSizeCombo);
+        float size = (float)_wtof(s.c_str());
+        if (size > 0) size = std::clamp(size, 1.0f, 999.0f);
+        if (size <= 0 || std::fabs(size - s_editOrigSize) < 0.05f) size = 0;
+        st.size = size;
+        st.bold = IsWindowEnabled(s_hBoldBtn)
+            && SendMessageW(s_hBoldBtn, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        return st;
+    }
+
+    void LayoutEditor(const RECT& vp);
+
+    // 고른 글꼴/크기/굵기를 입력창 글꼴과 경고 문구에 반영
+    void ApplyEditorStyle(const EditStyle& st)
+    {
+        // 굵게: 자동이거나 진짜 굵은 꼴이 있는 글꼴만
+        const bool boldOk = st.face.empty() || FaceHasRealBold(st.face);
+        EnableWindow(s_hBoldBtn, boldOk);
+        if (!boldOk) SendMessageW(s_hBoldBtn, BM_SETCHECK, BST_UNCHECKED, 0);
+
+        const TextObj* o = EditingObj();
+        const float pt = o ? EffSizePt(*o, st) : 12.0f;
+        const int px = (int)std::clamp((double)pt * g_zoom, 14.0, 40.0);
+        HFONT nf = CreateFontW(-px, 0, 0, 0, (st.bold && boldOk) ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0,
+            st.face.empty() ? kFallbackFace : st.face.c_str());
+        SendMessageW(s_hEdit, WM_SETFONT, (WPARAM)nf, TRUE);
+        if (s_editFont) DeleteObject(s_editFont);
+        s_editFont = nf;
+
+        RECT er; GetWindowRect(s_hEdit, &er);
+        SetWindowPos(s_hEdit, nullptr, 0, 0, er.right - er.left, px + 12,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+        // 고른 글꼴에 없는 글자가 있으면 알린다
+        const std::wstring text = WindowText(s_hEdit);
+        const bool missing = !st.face.empty() && !FaceHasGlyphs(st.face, st.bold && boldOk, text);
+        ShowWindow(s_hWarn, missing ? SW_SHOWNA : SW_HIDE);
+
+        RECT cr; GetClientRect(s_hMain, &cr);
+        LayoutEditor(GetViewportRect(cr));
+    }
+
+    void OnStyleChanged(const std::wstring* sizeText = nullptr)
+    {
+        if (s_hEdit) ApplyEditorStyle(ReadEditorStyle(sizeText));
+    }
+
+    // 글자를 입력하는 동안에는 '없는 글자' 경고만 갱신한다 (글꼴을 다시 만들면 깜빡인다)
+    void UpdateGlyphWarning()
+    {
+        if (!s_hEdit || !s_hWarn) return;
+        const EditStyle st = ReadEditorStyle();
+        const bool missing = !st.face.empty() && !FaceHasGlyphs(st.face, st.bold, WindowText(s_hEdit));
+        if ((IsWindowVisible(s_hWarn) != FALSE) == missing) return;
+        ShowWindow(s_hWarn, missing ? SW_SHOWNA : SW_HIDE);
+        RECT cr; GetClientRect(s_hMain, &cr);
+        LayoutEditor(GetViewportRect(cr));
+    }
+
     void FinishEdit(bool keep)
     {
         if (!s_hEdit || s_finishing) return;
         s_finishing = true;
 
-        HWND hEdit = s_hEdit;
-        s_hEdit = nullptr;
-
         if (keep)
         {
             auto it = s_docs.find(s_editDoc);
-            if (it != s_docs.end() && s_editPage >= 0 && s_editPage < (int)it->second.pages.size())
+            const TextObj* o = EditingObj();
+            if (it != s_docs.end() && o)
             {
-                DocState& ds = it->second;
-                const auto& objs = ds.pages[s_editPage].objs;
-                if (s_editObj >= 0 && s_editObj < (int)objs.size())
-                {
-                    const TextObj& o = objs[s_editObj];
-                    const int len = GetWindowTextLengthW(hEdit);
-                    std::wstring text(len, L'\0');
-                    if (len > 0) GetWindowTextW(hEdit, &text[0], len + 1);
-
-                    SetObjText(ds, s_editPage, o, text);
-                }
+                const TextObj copy = *o;
+                SetObjEdit(it->second, s_editPage, copy, WindowText(s_hEdit), ReadEditorStyle());
             }
         }
 
+        HWND hEdit = s_hEdit, hBar = s_hBar;
+        s_hEdit = s_hBar = s_hFontCombo = s_hSizeCombo = s_hBoldBtn = s_hWarn = nullptr;
         DestroyWindow(hEdit);
+        if (hBar) DestroyWindow(hBar);
         if (s_editFont) { DeleteObject(s_editFont); s_editFont = nullptr; }
         s_editDoc  = nullptr;
         s_editPage = -1;
@@ -484,32 +780,332 @@ namespace
         RedrawMain();
     }
 
-    LRESULT CALLBACK EditProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    // 포커스가 입력창/서식 막대 밖으로 나가면 확정한다.
+    // 포커스는 컨트롤 사이를 옮겨 다니므로, 이동이 끝난 뒤(메시지 한 번 뒤)에 확인한다.
+    void ScheduleFocusCheck()
     {
-        WNDPROC orig = (WNDPROC)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        if (s_hBar) PostMessageW(s_hBar, WM_TE_CHECKFOCUS, 0, 0);
+    }
+
+    // Tab 순서: 입력창 → 글꼴 → 크기 → 굵게
+    void FocusNext(HWND from, bool back)
+    {
+        HWND order[4] = { s_hEdit, s_hFontCombo, s_hSizeCombo, s_hBoldBtn };
+        int cur = 0;
+        for (int i = 0; i < 4; ++i)
+            if (order[i] == from || (order[i] && IsChild(order[i], from))) cur = i;
+        for (int step = 1; step <= 4; ++step)
+        {
+            HWND h = order[(cur + (back ? 4 - step : step)) % 4];
+            if (h && IsWindowEnabled(h)) { SetFocus(h); return; }
+        }
+    }
+
+    bool ComboDropped(HWND h)
+    {
+        HWND combo = h;
+        wchar_t cls[16] = {};
+        GetClassNameW(h, cls, 16);
+        if (_wcsicmp(cls, L"ComboBox") != 0) combo = GetParent(h);
+        return SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0) != 0;
+    }
+
+    // 입력창과 서식 막대 컨트롤 공통 키 처리 (Enter=확정, Esc=취소, Tab=다음 칸)
+    LRESULT CALLBACK ControlProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    {
+        WNDPROC orig = (WNDPROC)GetPropW(hWnd, L"PPV_TE_ORIG");
         switch (msg)
         {
         case WM_GETDLGCODE:
             return DLGC_WANTALLKEYS;
         case WM_KEYDOWN:
-            if (wParam == VK_RETURN) { FinishEdit(true);  return 0; }
-            if (wParam == VK_ESCAPE) { FinishEdit(false); return 0; }
+            if (wParam == VK_RETURN && !(hWnd != s_hEdit && ComboDropped(hWnd)))
+            { FinishEdit(true); return 0; }
+            if (wParam == VK_ESCAPE && !(hWnd != s_hEdit && ComboDropped(hWnd)))
+            { FinishEdit(false); return 0; }
+            if (wParam == VK_TAB)
+            { FocusNext(hWnd, (GetKeyState(VK_SHIFT) & 0x8000) != 0); return 0; }
             break;
         case WM_CHAR:
-            // Enter/Esc의 경고음 방지
-            if (wParam == L'\r' || wParam == 27) return 0;
+            // Enter/Esc/Tab의 경고음 방지
+            if (wParam == L'\r' || wParam == 27 || wParam == L'\t') return 0;
+            break;
+        case WM_KEYUP:
+        case WM_PASTE:
+        case WM_CUT:
+        case WM_CLEAR:
+        case WM_UNDO:
+            if (hWnd == s_hEdit)
+            {
+                LRESULT r = CallWindowProcW(orig, hWnd, msg, wParam, lParam);
+                UpdateGlyphWarning(); // 입력한 글자에 따라 '없는 글자' 경고를 갱신
+                return r;
+            }
             break;
         case WM_KILLFOCUS:
-            FinishEdit(true);
-            return 0;
+        {
+            LRESULT r = CallWindowProcW(orig, hWnd, msg, wParam, lParam);
+            ScheduleFocusCheck();
+            return r;
+        }
+        case WM_NCDESTROY:
+            RemovePropW(hWnd, L"PPV_TE_ORIG");
+            break;
         }
         return CallWindowProcW(orig, hWnd, msg, wParam, lParam);
+    }
+
+    void Subclass(HWND h)
+    {
+        if (!h) return;
+        SetPropW(h, L"PPV_TE_ORIG", (HANDLE)GetWindowLongPtrW(h, GWLP_WNDPROC));
+        SetWindowLongPtrW(h, GWLP_WNDPROC, (LONG_PTR)ControlProc);
+    }
+
+    HFONT SampleFont(const std::wstring& face)
+    {
+        static std::map<std::wstring, HFONT> cache;
+        auto it = cache.find(face);
+        if (it != cache.end()) return it->second;
+        HFONT f = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            0, 0, CLEARTYPE_QUALITY, 0, face.c_str());
+        cache[face] = f;
+        return f;
+    }
+
+    // 글꼴 목록 한 줄: 왼쪽에 이름, 오른쪽에 그 글꼴로 쓴 견본
+    void DrawFontItem(const DRAWITEMSTRUCT* dis)
+    {
+        if (dis->itemID == (UINT)-1) return;
+        const bool sel = (dis->itemState & ODS_SELECTED) != 0;
+        HDC dc = dis->hDC;
+        RECT rc = dis->rcItem;
+        FillRect(dc, &rc, GetSysColorBrush(sel ? COLOR_HIGHLIGHT : COLOR_WINDOW));
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, GetSysColor(sel ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
+
+        const int len = (int)SendMessageW(dis->hwndItem, CB_GETLBTEXTLEN, dis->itemID, 0);
+        std::wstring name(len > 0 ? len : 0, L'\0');
+        if (len > 0) SendMessageW(dis->hwndItem, CB_GETLBTEXT, dis->itemID, (LPARAM)&name[0]);
+
+        const bool inEditField = (dis->itemState & ODS_COMBOBOXEDIT) != 0;
+        RECT nameRc = rc;
+        nameRc.left += 6;
+        if (!inEditField) nameRc.right -= 70;
+        HGDIOBJ old = SelectObject(dc, s_uiFont);
+        DrawTextW(dc, name.c_str(), -1, &nameRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+        if (!inEditField)
+        {
+            RECT smp = rc;
+            smp.left = rc.right - 68;
+            smp.right -= 6;
+            SelectObject(dc, SampleFont(dis->itemID == 0 ? kFallbackFace : name));
+            DrawTextW(dc, L"가Ab", -1, &smp, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
+        SelectObject(dc, old);
+    }
+
+    LRESULT CALLBACK BarProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    {
+        switch (msg)
+        {
+        case WM_TE_CHECKFOCUS:
+            if (s_hEdit && !InEditor(GetFocus())) FinishEdit(true);
+            return 0;
+        case WM_COMMAND:
+        {
+            const HWND from = (HWND)lParam;
+            const int code = HIWORD(wParam);
+            if (from == s_hFontCombo)
+            {
+                if (code == CBN_SELCHANGE) OnStyleChanged();
+                else if (code == CBN_CLOSEUP) SetFocus(s_hEdit);
+            }
+            else if (from == s_hSizeCombo)
+            {
+                if (code == CBN_SELCHANGE)
+                {
+                    // 목록에서 고른 직후에는 칸의 글자가 아직 바뀌지 않았으므로 목록 값을 쓴다
+                    const int sel = (int)SendMessageW(s_hSizeCombo, CB_GETCURSEL, 0, 0);
+                    wchar_t buf[32] = {};
+                    if (sel >= 0) SendMessageW(s_hSizeCombo, CB_GETLBTEXT, sel, (LPARAM)buf);
+                    const std::wstring s = buf;
+                    OnStyleChanged(&s);
+                }
+                else if (code == CBN_EDITCHANGE) OnStyleChanged();
+                else if (code == CBN_CLOSEUP) SetFocus(s_hEdit);
+            }
+            else if (from == s_hBoldBtn && code == BN_CLICKED)
+            {
+                OnStyleChanged();
+                SetFocus(s_hEdit);
+            }
+            return 0;
+        }
+        case WM_MEASUREITEM:
+            reinterpret_cast<MEASUREITEMSTRUCT*>(lParam)->itemHeight = 24;
+            return TRUE;
+        case WM_DRAWITEM:
+        {
+            const auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+            if (dis->hwndItem == s_hFontCombo) { DrawFontItem(dis); return TRUE; }
+            break;
+        }
+        case WM_CTLCOLORSTATIC:
+        {
+            HDC dc = (HDC)wParam;
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, RGB(200, 60, 40));
+            static HBRUSH bg = CreateSolidBrush(RGB(250, 250, 252));
+            return (LRESULT)bg;
+        }
+        case WM_ERASEBKGND:
+        {
+            RECT rc; GetClientRect(hWnd, &rc);
+            HBRUSH bg = CreateSolidBrush(RGB(250, 250, 252));
+            FillRect((HDC)wParam, &rc, bg);
+            DeleteObject(bg);
+            HPEN pen = CreatePen(PS_SOLID, 1, RGB(170, 175, 190));
+            HGDIOBJ op = SelectObject((HDC)wParam, pen);
+            HGDIOBJ ob = SelectObject((HDC)wParam, GetStockObject(NULL_BRUSH));
+            Rectangle((HDC)wParam, rc.left, rc.top, rc.right, rc.bottom);
+            SelectObject((HDC)wParam, op); SelectObject((HDC)wParam, ob);
+            DeleteObject(pen);
+            return 1;
+        }
+        }
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
+
+    const wchar_t* BarClass()
+    {
+        static bool registered = false;
+        if (!registered)
+        {
+            WNDCLASSW wc = {};
+            wc.lpfnWndProc   = BarProc;
+            wc.hInstance     = GetModuleHandleW(nullptr);
+            wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
+            wc.lpszClassName = L"PPV_TextEditBar";
+            RegisterClassW(&wc);
+            registered = true;
+        }
+        return L"PPV_TextEditBar";
     }
 
     // 입력창 위치: 상자 왼쪽에 맞추고 세로 가운데 정렬
     POINT EditPos(const RECT& box, int editH)
     {
         return { box.left, box.top + ((box.bottom - box.top) - editH) / 2 };
+    }
+
+    int BarHeight()
+    {
+        int h = kBarPad * 2 + kRowH;
+        if (s_hWarn && IsWindowVisible(s_hWarn)) h += kWarnH;
+        return h;
+    }
+
+    // 스크롤/확대에 맞춰 입력창과 서식 막대를 따라 움직이고, 뷰포트를 벗어나면 숨긴다.
+    // 서식 막대는 입력창 위에 두고, 위쪽 공간이 모자라면 아래에 둔다.
+    void LayoutEditor(const RECT& vp)
+    {
+        if (!s_hEdit) return;
+        bool show = false;
+        const TextObj* o = (s_editDoc == g_pdfDoc) ? EditingObj() : nullptr;
+        PageGeo g;
+        if (o && GetPageGeo(s_editPage, vp, g))
+        {
+            RECT wr; GetWindowRect(s_hEdit, &wr);
+            const int editH = wr.bottom - wr.top;
+            const POINT pos = EditPos(BoxRect(*o, g), editH);
+            POINT cur = { wr.left, wr.top };
+            ScreenToClient(GetParent(s_hEdit), &cur);
+            if (cur.x != pos.x || cur.y != pos.y)
+                SetWindowPos(s_hEdit, nullptr, pos.x, pos.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            show = pos.y >= vp.top && pos.y + editH <= vp.bottom;
+
+            if (s_hBar)
+            {
+                const int barH = BarHeight();
+                RECT br; GetWindowRect(s_hBar, &br);
+                int barY = pos.y - barH - 2;
+                if (barY < vp.top) barY = pos.y + editH + 2;
+                POINT bcur = { br.left, br.top };
+                ScreenToClient(GetParent(s_hBar), &bcur);
+                if (bcur.x != pos.x || bcur.y != barY || br.bottom - br.top != barH)
+                    SetWindowPos(s_hBar, HWND_TOP, pos.x, barY, br.right - br.left, barH, SWP_NOACTIVATE);
+            }
+        }
+        if ((IsWindowVisible(s_hEdit) != FALSE) != show)
+            ShowWindow(s_hEdit, show ? SW_SHOWNA : SW_HIDE);
+        if (s_hBar && (IsWindowVisible(s_hBar) != FALSE) != show)
+            ShowWindow(s_hBar, show ? SW_SHOWNA : SW_HIDE);
+    }
+
+    void CreateFormatBar(HWND hWnd, const EditStyle& st, const TextObj& o)
+    {
+        if (!s_uiFont)
+            s_uiFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                0, 0, CLEARTYPE_QUALITY, 0, L"Malgun Gothic");
+        if (!s_uiBoldFont)
+            s_uiBoldFont = CreateFontW(-15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+
+        const HINSTANCE hi = GetModuleHandleW(nullptr);
+        const int fontW = 240, sizeW = 66, boldW = 30;
+        const int barW = kBarPad * 2 + fontW + 4 + sizeW + 4 + boldW;
+        s_hBar = CreateWindowExW(0, BarClass(), L"", WS_CHILD | WS_CLIPCHILDREN,
+            0, 0, barW, kBarPad * 2 + kRowH, hWnd, nullptr, hi, nullptr);
+        if (!s_hBar) return;
+
+        int x = kBarPad;
+        s_hFontCombo = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS,
+            x, kBarPad, fontW, 360, s_hBar, nullptr, hi, nullptr);
+        x += fontW + 4;
+        s_hSizeCombo = CreateWindowExW(0, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | CBS_DROPDOWN,
+            x, kBarPad, sizeW, 300, s_hBar, nullptr, hi, nullptr);
+        x += sizeW + 4;
+        s_hBoldBtn = CreateWindowExW(0, L"BUTTON", L"B",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+            x, kBarPad, boldW, kRowH - 2, s_hBar, nullptr, hi, nullptr);
+        s_hWarn = CreateWindowExW(0, L"STATIC", LS(STR_TEXTEDIT_NO_GLYPH),
+            WS_CHILD | SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS,
+            kBarPad + 2, kBarPad + kRowH, barW - kBarPad * 2 - 4, kWarnH, s_hBar, nullptr, hi, nullptr);
+
+        for (HWND h : { s_hFontCombo, s_hSizeCombo, s_hWarn })
+            SendMessageW(h, WM_SETFONT, (WPARAM)s_uiFont, FALSE);
+        SendMessageW(s_hBoldBtn, WM_SETFONT, (WPARAM)s_uiBoldFont, FALSE);
+
+        // 글꼴 목록: 0번 = 자동, 그 뒤로 설치된 글꼴
+        SendMessageW(s_hFontCombo, CB_ADDSTRING, 0, (LPARAM)LS(STR_TEXTEDIT_FONT_AUTO));
+        for (const auto& f : InstalledFonts())
+            SendMessageW(s_hFontCombo, CB_ADDSTRING, 0, (LPARAM)f.c_str());
+        int sel = 0;
+        if (!st.face.empty())
+        {
+            const LRESULT i = SendMessageW(s_hFontCombo, CB_FINDSTRINGEXACT, 0, (LPARAM)st.face.c_str());
+            if (i != CB_ERR) sel = (int)i;
+        }
+        SendMessageW(s_hFontCombo, CB_SETCURSEL, sel, 0);
+        SendMessageW(s_hFontCombo, CB_SETMINVISIBLE, 14, 0);
+
+        static const wchar_t* sizes[] = { L"8", L"9", L"10", L"11", L"12", L"14", L"16", L"18",
+            L"20", L"24", L"28", L"32", L"36", L"48", L"60", L"72" };
+        for (const wchar_t* s : sizes)
+            SendMessageW(s_hSizeCombo, CB_ADDSTRING, 0, (LPARAM)s);
+        SetWindowTextW(s_hSizeCombo, FormatSize(EffSizePt(o, st)).c_str());
+
+        SendMessageW(s_hBoldBtn, BM_SETCHECK, st.bold ? BST_CHECKED : BST_UNCHECKED, 0);
+
+        Subclass(s_hFontCombo);
+        COMBOBOXINFO ci = { sizeof(ci) };
+        if (GetComboBoxInfo(s_hSizeCombo, &ci)) Subclass(ci.hwndItem);
+        Subclass(s_hBoldBtn);
+        ShowWindow(s_hBar, SW_SHOWNA);
     }
 
     void StartEdit(HWND hWnd, int page, int objIdx)
@@ -526,121 +1122,270 @@ namespace
 
         DocState& ds = s_docs[g_pdfDoc];
         PendingEdit* e = FindEdit(ds, page, o.objIndex);
-        const std::wstring& current = e ? e->text : o.text;
+        const std::wstring current = e ? e->text : o.text;
+        const EditStyle style = e ? e->style : DefaultStyle(o);
 
-        const int fontPx = (int)std::clamp(EmPixels(o), 14.0, 40.0);
-        const int editH  = fontPx + 12;
-        const int editW  = std::max<int>((box.right - box.left) + 80, 200);
-        const POINT pos  = EditPos(box, editH);
-
-        s_hMain    = hWnd;
-        s_editDoc  = g_pdfDoc;
-        s_editPage = page;
-        s_editObj  = objIdx;
+        const int editW = std::max<int>((box.right - box.left) + 80, 260);
+        s_hMain        = hWnd;
+        s_editDoc      = g_pdfDoc;
+        s_editPage     = page;
+        s_editObj      = objIdx;
+        s_editOrigSize = OrigSizePt(o);
         s_hEdit = CreateWindowExW(0, L"EDIT", current.c_str(),
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-            pos.x, pos.y, editW, editH, hWnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+            box.left, box.top, editW, 30, hWnd, nullptr, GetModuleHandleW(nullptr), nullptr);
         if (!s_hEdit) { s_editDoc = nullptr; s_editPage = s_editObj = -1; return; }
-
-        s_editFont = CreateFontW(-fontPx, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Malgun Gothic");
-        SendMessageW(s_hEdit, WM_SETFONT, (WPARAM)s_editFont, TRUE);
         SendMessageW(s_hEdit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(4, 4));
+        Subclass(s_hEdit);
 
-        WNDPROC orig = (WNDPROC)SetWindowLongPtrW(s_hEdit, GWLP_WNDPROC, (LONG_PTR)EditProc);
-        SetWindowLongPtrW(s_hEdit, GWLP_USERDATA, (LONG_PTR)orig);
+        CreateFormatBar(hWnd, style, o);
+        ApplyEditorStyle(style); // 입력창 글꼴·높이, 굵게 사용 가능 여부, 경고, 위치
 
         SetFocus(s_hEdit);
         SendMessageW(s_hEdit, EM_SETSEL, 0, -1);
         RedrawMain();
     }
 
-    // 스크롤/확대에 맞춰 입력창을 따라 움직이고, 뷰포트를 벗어나면 숨긴다
-    void UpdateEditPosition(const RECT& vp)
-    {
-        if (!s_hEdit) return;
-        bool show = false;
-        if (s_editDoc == g_pdfDoc)
-        {
-            auto it = s_docs.find(s_editDoc);
-            PageGeo g;
-            if (it != s_docs.end() && s_editPage < (int)it->second.pages.size()
-                && GetPageGeo(s_editPage, vp, g))
-            {
-                const auto& objs = it->second.pages[s_editPage].objs;
-                if (s_editObj >= 0 && s_editObj < (int)objs.size())
-                {
-                    RECT wr; GetWindowRect(s_hEdit, &wr);
-                    const int editH = wr.bottom - wr.top;
-                    const POINT pos = EditPos(BoxRect(objs[s_editObj], g), editH);
-                    POINT cur = { wr.left, wr.top };
-                    ScreenToClient(GetParent(s_hEdit), &cur);
-                    if (cur.x != pos.x || cur.y != pos.y)
-                        SetWindowPos(s_hEdit, nullptr, pos.x, pos.y, 0, 0,
-                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-                    show = pos.y >= vp.top && pos.y + editH <= vp.bottom;
-                }
-            }
-        }
-        const bool visible = IsWindowVisible(s_hEdit) != FALSE;
-        if (show != visible)
-            ShowWindow(s_hEdit, show ? SW_SHOWNA : SW_HIDE);
-    }
+    // ── 저장 시 글꼴 넣기 ────────────────────────────────────────────────────
 
     void* __cdecl FsAlloc(size_t n)            { return malloc(n); }
     void* __cdecl FsRealloc(void* p, size_t n) { return realloc(p, n); }
     void  __cdecl FsFree(void* p)              { free(p); }
 
-    bool ReadFileBytes(const std::wstring& path, std::vector<unsigned char>& out)
+    // ── cmap 다시 쓰기 ──────────────────────────────────────────────────────
+    // 글꼴의 cmap에 여러 문자가 같은 글리프를 가리키면(예: Times New Roman의 공백 U+0020과
+    // 줄바꿈 없는 공백 U+00A0) PDFium은 글리프→문자 표를 만들 때 뒤의 문자로 덮어써서,
+    // 앞의 문자(보통 공백)를 쓸 때 글리프를 못 찾고 0번(빈 상자)을 넣는다.
+    // 그래서 넣기 전에 cmap을 실제로 쓴 글자만 담은 format 4 표 하나로 바꾼다.
+
+    void PutBE16(std::vector<unsigned char>& v, unsigned x) { v.push_back((unsigned char)(x >> 8)); v.push_back((unsigned char)x); }
+    void PutBE32(std::vector<unsigned char>& v, unsigned x) { PutBE16(v, x >> 16); PutBE16(v, x & 0xFFFF); }
+    void SetBE32(unsigned char* p, unsigned x) { p[0] = (unsigned char)(x >> 24); p[1] = (unsigned char)(x >> 16); p[2] = (unsigned char)(x >> 8); p[3] = (unsigned char)x; }
+
+    // cmap 하위 표 하나에서 문자 → 글리프 번호 (없으면 0)
+    unsigned CmapGlyph(const unsigned char* sub, size_t avail, unsigned c)
     {
-        HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h == INVALID_HANDLE_VALUE) return false;
-        LARGE_INTEGER size = {};
-        bool ok = GetFileSizeEx(h, &size) && size.QuadPart > 0 && size.QuadPart < (1LL << 30);
-        if (ok)
+        if (avail < 4) return 0;
+        const unsigned format = BE16(sub);
+        if (format == 4)
         {
-            out.resize((size_t)size.QuadPart);
-            DWORD read = 0;
-            ok = ReadFile(h, out.data(), (DWORD)out.size(), &read, nullptr) && read == out.size();
+            const size_t len = std::min<size_t>(BE16(sub + 2), avail);
+            if (len < 14) return 0;
+            const unsigned segX2 = BE16(sub + 6);
+            const size_t endOff = 14, startOff = endOff + segX2 + 2, deltaOff = startOff + segX2, rangeOff = deltaOff + segX2;
+            if (rangeOff + segX2 > len) return 0;
+            for (unsigned i = 0; i < segX2 / 2; ++i)
+            {
+                const unsigned end = BE16(sub + endOff + 2 * i);
+                if (end < c) continue;
+                const unsigned start = BE16(sub + startOff + 2 * i);
+                if (start > c) return 0;
+                const unsigned delta = BE16(sub + deltaOff + 2 * i);
+                const unsigned ro = BE16(sub + rangeOff + 2 * i);
+                if (ro == 0) return (c + delta) & 0xFFFF;
+                const size_t addr = rangeOff + 2 * i + ro + 2 * (c - start);
+                if (addr + 2 > len) return 0;
+                const unsigned g = BE16(sub + addr);
+                return g ? ((g + delta) & 0xFFFF) : 0;
+            }
+            return 0;
         }
-        CloseHandle(h);
-        return ok;
+        if (format == 12)
+        {
+            if (avail < 16) return 0;
+            const unsigned n = BE32(sub + 12);
+            for (unsigned i = 0; i < n && 16 + 12 * (size_t)(i + 1) <= avail; ++i)
+            {
+                const unsigned char* g = sub + 16 + 12 * i;
+                if (c >= BE32(g) && c <= BE32(g + 4)) return BE32(g + 8) + (c - BE32(g));
+            }
+        }
+        return 0;
     }
 
-    // 맑은 고딕(굵게면 맑은 고딕 Bold)을 chars에 든 글자만 남긴 서브셋으로 doc에 불러온다.
-    // 서브셋을 못 만들면 글꼴 전체를 넣는다 (파일이 커지지만 글자는 보인다).
-    FPDF_FONT LoadKoreanFont(FPDF_DOCUMENT doc, const std::set<wchar_t>& chars, bool bold)
+    // font의 cmap을 chars만 담은 (3,1) format 4 표로 바꾼 새 글꼴. 실패하면 빈 벡터
+    std::vector<unsigned char> RewriteCmap(const std::vector<unsigned char>& font, const std::set<wchar_t>& chars)
     {
-        wchar_t winDir[MAX_PATH] = {};
-        UINT wl = GetWindowsDirectoryW(winDir, MAX_PATH);
-        if (wl == 0 || wl >= MAX_PATH) wcscpy_s(winDir, L"C:\\Windows");
-        const std::wstring fontDir = std::wstring(winDir) + L"\\Fonts\\";
-        std::vector<unsigned char> full;
-        if (!(bold && ReadFileBytes(fontDir + L"malgunbd.ttf", full))
-            && !ReadFileBytes(fontDir + L"malgun.ttf", full))
-            return nullptr;
+        const size_t size = font.size();
+        if (size < 12) return {};
+        const unsigned char* p = font.data();
+        const unsigned numTables = BE16(p + 4);
+        if (12 + 16 * (size_t)numTables > size) return {};
+
+        // cmap 표 찾기
+        const unsigned char* cmap = nullptr;
+        size_t cmapLen = 0;
+        for (unsigned i = 0; i < numTables; ++i)
+        {
+            const unsigned char* rec = p + 12 + 16 * i;
+            if (memcmp(rec, "cmap", 4) == 0)
+            {
+                const size_t off = BE32(rec + 8), len = BE32(rec + 12);
+                if (off + len > size) return {};
+                cmap = p + off; cmapLen = len;
+            }
+        }
+        if (!cmap || cmapLen < 4) return {};
+
+        // 유니코드 하위 표 고르기: (3,10) → (3,1) → (0,*)
+        const unsigned char* sub = nullptr;
+        size_t subAvail = 0;
+        int bestRank = 99;
+        const unsigned nSub = BE16(cmap + 2);
+        for (unsigned i = 0; i < nSub && 4 + 8 * (size_t)(i + 1) <= cmapLen; ++i)
+        {
+            const unsigned char* er = cmap + 4 + 8 * i;
+            const unsigned plat = BE16(er), enc = BE16(er + 2);
+            const size_t off = BE32(er + 4);
+            if (off + 4 > cmapLen) continue;
+            const unsigned fmt = BE16(cmap + off);
+            int rank = 99;
+            if (plat == 3 && enc == 10 && fmt == 12) rank = 0;
+            else if (plat == 3 && enc == 1 && fmt == 4) rank = 1;
+            else if (plat == 0 && (fmt == 4 || fmt == 12)) rank = 2;
+            if (rank < bestRank) { bestRank = rank; sub = cmap + off; subAvail = cmapLen - off; }
+        }
+        if (!sub) return {};
+
+        std::vector<std::pair<unsigned, unsigned>> map; // 문자 → 글리프 (문자 순)
+        for (wchar_t c : chars)
+        {
+            if (c >= 0xFFFF) continue;
+            const unsigned g = CmapGlyph(sub, subAvail, c);
+            if (g) map.push_back({ (unsigned)c, g });
+        }
+        if (map.empty()) return {};
+
+        // format 4: 문자마다 한 구간 + 끝 구간(0xFFFF)
+        const unsigned segCount = (unsigned)map.size() + 1;
+        unsigned entrySel = 0;
+        while ((2u << entrySel) <= segCount) ++entrySel;
+        const unsigned searchRange = 2u << entrySel;
+        std::vector<unsigned char> f4;
+        PutBE16(f4, 4); PutBE16(f4, 16 + 8 * segCount); PutBE16(f4, 0);
+        PutBE16(f4, segCount * 2); PutBE16(f4, searchRange); PutBE16(f4, entrySel); PutBE16(f4, segCount * 2 - searchRange);
+        for (auto& m : map) PutBE16(f4, m.first);
+        PutBE16(f4, 0xFFFF);
+        PutBE16(f4, 0);                                            // reservedPad
+        for (auto& m : map) PutBE16(f4, m.first);
+        PutBE16(f4, 0xFFFF);
+        for (auto& m : map) PutBE16(f4, (m.second - m.first) & 0xFFFF);
+        PutBE16(f4, 1);
+        for (unsigned i = 0; i < segCount; ++i) PutBE16(f4, 0);    // idRangeOffset
+
+        std::vector<unsigned char> newCmap;
+        PutBE16(newCmap, 0); PutBE16(newCmap, 1);                  // version, 하위 표 1개
+        PutBE16(newCmap, 3); PutBE16(newCmap, 1); PutBE32(newCmap, 12);
+        newCmap.insert(newCmap.end(), f4.begin(), f4.end());
+
+        // 표 목록은 그대로 두고 cmap만 바꿔 글꼴을 다시 조립한다 (각 표는 4바이트 정렬)
+        std::vector<unsigned char> out(p, p + 12 + 16 * numTables);
+        for (unsigned i = 0; i < numTables; ++i)
+        {
+            unsigned char* rec = out.data() + 12 + 16 * i;
+            const bool isCmap = memcmp(rec, "cmap", 4) == 0;
+            const size_t off = BE32(rec + 8), len = BE32(rec + 12);
+            if (!isCmap && off + len > size) return {};
+            const unsigned char* src = isCmap ? newCmap.data() : p + off;
+            const size_t n = isCmap ? newCmap.size() : len;
+            const size_t newOff = out.size();
+            out.insert(out.end(), src, src + n);
+            while (out.size() % 4) out.push_back(0);
+            rec = out.data() + 12 + 16 * i; // insert로 버퍼가 옮겨졌을 수 있다
+            if (isCmap)
+            {
+                unsigned sum = 0;
+                for (size_t k = newOff; k < out.size(); k += 4) sum += BE32(out.data() + k);
+                SetBE32(rec + 4, sum);
+            }
+            SetBE32(rec + 8, (unsigned)newOff);
+            SetBE32(rec + 12, (unsigned)n);
+        }
+        return out;
+    }
+
+    // 설치된 글꼴(face, bold)을 chars에 든 글자만 남긴 서브셋으로 doc에 불러온다.
+    // 글꼴 파일은 GDI(GetFontData)로 읽으므로 .ttc 묶음 글꼴(굴림·바탕 등)도 그 안의 한 글꼴만 뽑아 쓴다.
+    // 서브셋을 못 만들면 (.ttf일 때) 글꼴 전체를 넣는다.
+    FPDF_FONT LoadSystemFont(FPDF_DOCUMENT doc, const std::wstring& face, bool bold, const std::set<wchar_t>& chars)
+    {
+        FontDC f(face, bold);
+        if (!f.ok() || !EmbeddingAllowed(f.dc)) return nullptr;
+
+        std::vector<unsigned char> file;
+        bool isTtc = false;
+        unsigned short ttcIndex = 0;
+        const DWORD ttcSize = GetFontData(f.dc, TAG_TTCF, 0, nullptr, 0);
+        if (ttcSize != GDI_ERROR && ttcSize > 12)
+        {
+            isTtc = true;
+            file.resize(ttcSize);
+            if (GetFontData(f.dc, TAG_TTCF, 0, file.data(), ttcSize) != ttcSize) return nullptr;
+            // 지금 고른 글꼴의 테이블 목록과 같은 것을 묶음 안에서 찾아 번호를 얻는다
+            unsigned char hdr[12];
+            if (GetFontData(f.dc, 0, 0, hdr, 12) != 12) return nullptr;
+            const DWORD dirLen = 12 + 16 * BE16(hdr + 4);
+            std::vector<unsigned char> dir(dirLen);
+            if (GetFontData(f.dc, 0, 0, dir.data(), dirLen) != dirLen) return nullptr;
+            const unsigned numFonts = BE32(file.data() + 8);
+            bool found = false;
+            for (unsigned i = 0; i < numFonts && 12 + 4 * (i + 1) <= ttcSize; ++i)
+            {
+                const unsigned off = BE32(file.data() + 12 + 4 * i);
+                if (off + dirLen <= ttcSize && memcmp(file.data() + off, dir.data(), dirLen) == 0)
+                { ttcIndex = (unsigned short)i; found = true; break; }
+            }
+            if (!found) return nullptr;
+        }
+        else
+        {
+            const DWORD size = GetFontData(f.dc, 0, 0, nullptr, 0);
+            if (size == GDI_ERROR || size == 0) return nullptr;
+            file.resize(size);
+            if (GetFontData(f.dc, 0, 0, file.data(), size) != size) return nullptr;
+        }
 
         std::vector<unsigned short> keep(chars.begin(), chars.end());
         keep.push_back(L' ');
         unsigned char* sub = nullptr;
         unsigned long subSize = 0, written = 0;
-        unsigned long rc = CreateFontPackage(full.data(), (unsigned long)full.size(),
-            &sub, &subSize, &written,
-            TTFCFP_FLAGS_SUBSET, 0, TTFCFP_SUBSET, 0,
-            TTFCFP_MS_PLATFORMID, TTFCFP_UNICODE_CHAR_SET,
-            keep.data(), (unsigned short)keep.size(),
-            FsAlloc, FsRealloc, FsFree, nullptr);
+        const bool subsetAllowed = !(ReadOS2U16(f.dc, 8) > 0 && (ReadOS2U16(f.dc, 8) & 0x0100));
+        unsigned long rc = 1;
+        if (subsetAllowed)
+            rc = CreateFontPackage(file.data(), (unsigned long)file.size(), &sub, &subSize, &written,
+                (unsigned short)(TTFCFP_FLAGS_SUBSET | (isTtc ? TTFCFP_FLAGS_TTC : 0)), ttcIndex,
+                TTFCFP_SUBSET, 0, TTFCFP_MS_PLATFORMID, TTFCFP_UNICODE_CHAR_SET,
+                keep.data(), (unsigned short)keep.size(), FsAlloc, FsRealloc, FsFree, nullptr);
         if (rc == 0 && sub && written > 0)
             s_fontKeepAlive.emplace_back(sub, sub + written);
+        else if (!isTtc)
+            s_fontKeepAlive.push_back(std::move(file));
         else
-            s_fontKeepAlive.push_back(std::move(full));
+        {
+            if (sub) FsFree(sub);
+            return nullptr;
+        }
         if (sub) FsFree(sub);
 
+        std::set<wchar_t> used = chars;
+        used.insert(L' ');
+        std::vector<unsigned char> fixed = RewriteCmap(s_fontKeepAlive.back(), used);
+        if (!fixed.empty()) s_fontKeepAlive.back() = std::move(fixed);
+
         const auto& data = s_fontKeepAlive.back();
-        return FPDFText_LoadFont(doc, data.data(), (uint32_t)data.size(),
-            FPDF_FONT_TRUETYPE, /*cid=*/1);
+        return FPDFText_LoadFont(doc, data.data(), (uint32_t)data.size(), FPDF_FONT_TRUETYPE, /*cid=*/1);
     }
+
+    struct FontKey
+    {
+        bool standard; std::wstring face; bool bold;
+        bool operator<(const FontKey& o) const
+        {
+            if (standard != o.standard) return standard < o.standard;
+            if (bold != o.bold) return bold < o.bold;
+            return face < o.face;
+        }
+    };
 }
 
 namespace TextEdit
@@ -670,7 +1415,7 @@ namespace TextEdit
         auto it = s_docs.find(g_pdfDoc);
         const bool hasEdits = (it != s_docs.end() && !it->second.edits.empty());
         const RECT vp = GetViewportRect(clientRect);
-        if (!s_active && !hasEdits) { UpdateEditPosition(vp); return; }
+        if (!s_active && !hasEdits) { LayoutEditor(vp); return; }
 
         const int saved = SaveDC(hdc);
         IntersectClipRect(hdc, vp.left, vp.top, vp.right, vp.bottom);
@@ -699,7 +1444,7 @@ namespace TextEdit
                 RECT box = BoxRect(o, g);
                 if (e)
                 {
-                    RECT area = DrawPreview(hdc, o, e->text, g);
+                    RECT area = DrawPreview(hdc, o, *e, g);
                     InflateRect(&area, 2, 2);
                     UnionRect(&box, &box, &area);
                 }
@@ -709,7 +1454,7 @@ namespace TextEdit
         }
 
         RestoreDC(hdc, saved);
-        UpdateEditPosition(vp);
+        LayoutEditor(vp);
     }
 
     bool HitTest(int x, int y)
@@ -758,6 +1503,7 @@ namespace TextEdit
         const TextObj o = ds.pages[page].objs[k]; // 메뉴가 떠 있는 동안 벡터가 바뀌어도 안전하도록 복사
         const PendingEdit* e = FindEdit(ds, page, o.objIndex);
         const bool deleted = e && e->text.empty();
+        const EditStyle style = e ? e->style : DefaultStyle(o);
 
         enum { CMD_EDIT = 1, CMD_DELETE, CMD_RESTORE };
         HMENU menu = CreatePopupMenu();
@@ -777,16 +1523,16 @@ namespace TextEdit
         if (cmd == CMD_EDIT)
             StartEdit(hWnd, page, k);
         else if (cmd == CMD_DELETE)
-            SetObjText(ds, page, o, L"");
+            SetObjEdit(ds, page, o, L"", style);
         else if (cmd == CMD_RESTORE)
-            SetObjText(ds, page, o, o.text);
+            SetObjEdit(ds, page, o, o.text, DefaultStyle(o));
         RedrawMain();
         return true;
     }
 
     void CommitEdit() { FinishEdit(true); }
 
-    bool IsEditFocused() { return s_hEdit && GetFocus() == s_hEdit; }
+    bool IsEditFocused() { return InEditor(GetFocus()); }
 
     bool HasPendingEdits(FPDF_DOCUMENT doc)
     {
@@ -804,26 +1550,27 @@ namespace TextEdit
         s_docs.erase(it);
         s_hoverPage = s_hoverObj = -1;
 
-        // 필요한 글꼴만 준비한다 — [0] 보통, [1] 굵게
-        std::set<wchar_t> koChars[2];
-        bool needStd[2] = { false, false };
+        // 필요한 글꼴과 글꼴마다 쓰인 글자를 모은다
+        std::map<FontKey, std::set<wchar_t>> need;
         for (const auto& e : edits)
         {
             if (e.text.empty()) continue;
-            const int bi = e.bold ? 1 : 0;
-            if (IsAsciiText(e.text)) needStd[bi] = true;
-            else koChars[bi].insert(e.text.begin(), e.text.end());
+            auto& chars = need[{ e.res.standard, e.res.standard ? L"" : e.res.face, e.res.bold }];
+            chars.insert(e.text.begin(), e.text.end());
         }
 
         std::lock_guard<std::mutex> lk(g_pdfiumMtx);
         s_fontKeepAlive.clear(); // 이전 저장의 문서는 이미 닫혔다
-        FPDF_FONT fontStd[2] = {}, fontKo[2] = {};
-        for (int bi = 0; bi < 2; ++bi)
+        std::map<FontKey, FPDF_FONT> fonts;
+        for (const auto& [key, chars] : need)
         {
-            if (needStd[bi])
-                fontStd[bi] = FPDFText_LoadStandardFont(doc, bi ? "Helvetica-Bold" : "Helvetica");
-            if (!koChars[bi].empty())
-                fontKo[bi] = LoadKoreanFont(doc, koChars[bi], bi == 1);
+            FPDF_FONT f = key.standard
+                ? FPDFText_LoadStandardFont(doc, key.bold ? "Helvetica-Bold" : "Helvetica")
+                : LoadSystemFont(doc, key.face, key.bold, chars);
+            // 고른 글꼴을 넣지 못하면 맑은 고딕으로 대신한다
+            if (!f && (key.standard || key.face != kFallbackFace))
+                f = LoadSystemFont(doc, kFallbackFace, key.bold, chars);
+            fonts[key] = f;
         }
 
         std::map<int, std::vector<const PendingEdit*>> byPage;
@@ -890,9 +1637,9 @@ namespace TextEdit
                 float newRight = 0;
                 if (!text.empty())
                 {
-                    const int bi = j.e->bold ? 1 : 0;
-                    FPDF_FONT font = IsAsciiText(text)
-                        ? (fontStd[bi] ? fontStd[bi] : fontKo[bi]) : fontKo[bi];
+                    const Resolved& res = j.e->res;
+                    auto fit = fonts.find({ res.standard, res.standard ? L"" : res.face, res.bold });
+                    FPDF_FONT font = (fit != fonts.end()) ? fit->second : nullptr;
                     if (!font) continue; // 글꼴이 없으면 원래 글자를 그대로 둔다
 
                     FS_MATRIX m{};
@@ -901,6 +1648,9 @@ namespace TextEdit
                     FPDFPageObj_GetMatrix(j.obj, &m);
                     FPDFTextObj_GetFontSize(j.obj, &fontSize);
                     FPDFPageObj_GetFillColor(j.obj, &R, &G, &B, &A);
+                    // 크기를 바꿨으면 행렬의 세로 배율을 감안해 글꼴 크기(Tf)를 정한다
+                    if (j.e->style.size > 0 && m.d > 0)
+                        fontSize = j.e->style.size / m.d;
 
                     FPDF_PAGEOBJECT n = FPDFPageObj_CreateTextObj(doc, font, fontSize);
                     if (!n) continue;
@@ -942,11 +1692,8 @@ namespace TextEdit
             FPDF_ClosePage(pg);
         }
 
-        for (int bi = 0; bi < 2; ++bi)
-        {
-            if (fontStd[bi]) FPDFFont_Close(fontStd[bi]);
-            if (fontKo[bi])  FPDFFont_Close(fontKo[bi]);
-        }
+        for (auto& [key, f] : fonts)
+            if (f) FPDFFont_Close(f);
         return applied;
     }
 }
