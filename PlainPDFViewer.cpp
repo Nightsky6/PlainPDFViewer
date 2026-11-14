@@ -2638,6 +2638,7 @@ struct PrintJobData
     bool poster     = false;
     int  posterCols = 2;
     int  posterRows = 2;
+    bool twoUp      = false;        // 한 장에 두 페이지씩
 };
 
 struct PrintDevice
@@ -2893,6 +2894,58 @@ static PrintPageResult PrintOnePage(const PrintJobData& job, FPDF_DOCUMENT doc, 
     return sent ? PrintPageResult::Ok : PrintPageResult::SendFailed;
 }
 
+// 2쪽 모아찍기: first, second 페이지를 용지 한 장에 나란히(또는 위아래로) 그려 보낸다.
+// second가 -1이면 마지막 장의 홀수 페이지 하나만 그린다. 배치는 미리보기와 같은 TwoUpCell을 쓴다.
+static PrintPageResult PrintTwoUpSheet(const PrintJobData& job, FPDF_DOCUMENT doc, int first, int second,
+                                       const PrintDevice& dev)
+{
+    const int renderFlags = FPDF_ANNOT | FPDF_LCD_TEXT | FPDF_PRINTING;
+    const int printW = dev.printW, printH = dev.printH;
+
+    // 용지 전체를 한 비트맵으로 (일반 인쇄와 같이 300dpi 상한)
+    int bw = std::max(1, (int)(printW * dev.renderCap));
+    int bh = std::max(1, (int)(printH * dev.renderCap));
+    FPDF_BITMAP sheet = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        sheet = CreatePrintBitmap(bw, bh);
+        if (sheet) FPDFBitmap_FillRect(sheet, 0, 0, bw, bh, 0xFFFFFFFF);
+    }
+    if (!sheet) return PrintPageResult::RenderFailed;
+    const double kx = (double)bw / printW, ky = (double)bh / printH; // 프린터 좌표 → 비트맵 좌표
+
+    bool ok = true;
+    for (int slot = 0; slot < 2 && ok; ++slot)
+    {
+        const int pageIdx = slot ? second : first;
+        if (pageIdx < 0) continue;
+        const int rot = (pageIdx < (int)job.rotations.size()) ? job.rotations[pageIdx] : 0;
+
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        FPDF_PAGE page = FPDF_LoadPage(doc, pageIdx);
+        if (!page) { ok = false; break; }
+        double pdfW = FPDF_GetPageWidth(page), pdfH = FPDF_GetPageHeight(page);
+        if (rot == 1 || rot == 3) std::swap(pdfW, pdfH);
+        if (pdfW > 0.0 && pdfH > 0.0)
+        {
+            double x, y, w, h;
+            TwoUpCell(slot, printW, printH, pdfW * dev.dpiX / 72.0, pdfH * dev.dpiY / 72.0, x, y, w, h);
+            FPDF_RenderPageBitmap(sheet, page, (int)(x * kx), (int)(y * ky),
+                std::max(1, (int)(w * kx)), std::max(1, (int)(h * ky)), rot, renderFlags);
+        }
+        else ok = false;
+        FPDF_ClosePage(page);
+    }
+
+    const bool sent = ok && SendSheetToPrinter(job.hPrintDC, sheet, 0, 0, printW, printH);
+    {
+        std::lock_guard<std::mutex> lk(g_pdfiumMtx);
+        FPDFBitmap_Destroy(sheet);
+    }
+    if (!ok) return PrintPageResult::RenderFailed;
+    return sent ? PrintPageResult::Ok : PrintPageResult::SendFailed;
+}
+
 // 페이지를 하나씩 렌더링해 바로 스풀러로 보낸다 (메모리 사용량이 페이지 수와 무관)
 static DWORD WINAPI PrintWorkerThread(LPVOID param)
 {
@@ -2951,9 +3004,13 @@ static DWORD WINAPI PrintWorkerThread(LPVOID param)
             const int copies = std::max(1, job->copies);
             for (int c = 0; c < copies && !err[0]; ++c)
             {
-                for (int i = job->fromPage; i <= job->toPage && !err[0]; ++i)
+                const int step = job->twoUp ? 2 : 1; // 2쪽 모아찍기는 한 장에 두 페이지
+                for (int i = job->fromPage; i <= job->toPage && !err[0]; i += step)
                 {
-                    switch (PrintOnePage(*job, doc, i, dev))
+                    const PrintPageResult res = job->twoUp
+                        ? PrintTwoUpSheet(*job, doc, i, (i + 1 <= job->toPage) ? i + 1 : -1, dev)
+                        : PrintOnePage(*job, doc, i, dev);
+                    switch (res)
                     {
                     case PrintPageResult::RenderFailed:
                         swprintf_s(err, PrintStr(
@@ -3039,6 +3096,7 @@ static void PrintDocument(HWND hWnd)
     job->poster     = pdr.poster;
     job->posterCols = pdr.posterCols;
     job->posterRows = pdr.posterRows;
+    job->twoUp      = pdr.twoUp;
     job->rotations  = std::move(rotations);
 
     const size_t pos = g_filePath.find_last_of(L"\\/");

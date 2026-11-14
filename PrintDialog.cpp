@@ -26,8 +26,12 @@ namespace
 	{
 		ID_COMBO = 101, ID_PROPS, ID_COPIES, ID_RAD_ALL, ID_RAD_CUR, ID_RAD_RNG,
 		ID_ED_FROM, ID_ED_TO, ID_RAD_AUTO, ID_RAD_PORT, ID_RAD_LAND,
-		ID_RAD_FIT, ID_RAD_ACT, ID_PREV, ID_NEXT, ID_RAD_POSTER, ID_ED_COLS, ID_ED_ROWS
+		ID_RAD_FIT, ID_RAD_ACT, ID_PREV, ID_NEXT, ID_RAD_POSTER, ID_ED_COLS, ID_ED_ROWS,
+		ID_RAD_TWOUP
 	};
+
+	// 미리보기용 렌더 캐시 한 칸
+	struct PvCache { FPDF_BITMAP bmp = nullptr; int page = -1, w = 0, h = 0, rot = -1; };
 
 	constexpr int DLG_CW = 900;
 	constexpr int DLG_CH = 560;
@@ -49,6 +53,8 @@ namespace
 		HWND hRadAuto = nullptr, hRadPort = nullptr, hRadLand = nullptr;
 		HWND hRadFit = nullptr, hRadAct = nullptr;
 		HWND hRadPoster = nullptr, hEdCols = nullptr, hEdRows = nullptr;
+		HWND hRadTwoUp = nullptr;
+		PvCache two[2];               // 2쪽 모아찍기 미리보기의 두 페이지
 		HWND hPrev = nullptr, hNext = nullptr, hPrint = nullptr, hCancel = nullptr;
 		FPDF_DOCUMENT doc = nullptr;
 		int  pageCount = 0, curPage = 0;
@@ -116,6 +122,11 @@ namespace
 		f = 0; t = pc - 1;
 	}
 
+	bool TwoUp() { return Checked(g->hRadTwoUp); }
+
+	// 2쪽 모아찍기에서 page가 들어 있는 장의 첫 페이지 (범위 시작 f부터 두 쪽씩 묶는다)
+	int SheetStart(int page, int f) { return f + ((page - f) / 2) * 2; }
+
 	int Rotation(int page)
 	{
 		const auto& r = g->rotations;
@@ -165,7 +176,10 @@ namespace
 		{
 			int f, t; GetRange(f, t);
 			double w = 0, h = 0;
-			o = (PageSize(f, w, h) && w > h) ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT;
+			const bool landscapePage = PageSize(f, w, h) && w > h;
+			// 2쪽 모아찍기: 세로 페이지는 가로 용지에 나란히, 가로 페이지는 세로 용지에 위아래로
+			if (TwoUp()) o = landscapePage ? DMORIENT_PORTRAIT : DMORIENT_LANDSCAPE;
+			else         o = landscapePage ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT;
 		}
 		d->dmFields |= DM_ORIENTATION | DM_COPIES;
 		d->dmOrientation = o;
@@ -214,6 +228,32 @@ namespace
 	{
 		if (g->cache) { FPDFBitmap_Destroy(g->cache); g->cache = nullptr; }
 		g->cPage = -1;
+		for (auto& c : g->two)
+		{
+			if (c.bmp) FPDFBitmap_Destroy(c.bmp);
+			c = PvCache{};
+		}
+	}
+
+	// 캐시 칸 c에 page를 w×h로 렌더해 둔다 (같으면 다시 그리지 않음)
+	FPDF_BITMAP CachedRender(PvCache& c, int page, int w, int h)
+	{
+		State* s = g;
+		if (c.bmp && c.page == page && c.w == w && c.h == h && c.rot == Rotation(page)) return c.bmp;
+		if (c.bmp) { FPDFBitmap_Destroy(c.bmp); c = PvCache{}; }
+
+		std::lock_guard<std::mutex> lk(*s->mtx);
+		FPDF_PAGE pg = FPDF_LoadPage(s->doc, page);
+		if (!pg) return nullptr;
+		FPDF_BITMAP b = FPDFBitmap_Create(w, h, 0);
+		if (b)
+		{
+			FPDFBitmap_FillRect(b, 0, 0, w, h, 0xFFFFFFFF);
+			FPDF_RenderPageBitmap(b, pg, 0, 0, w, h, Rotation(page), FPDF_ANNOT | FPDF_LCD_TEXT);
+			c.bmp = b; c.page = page; c.w = w; c.h = h; c.rot = Rotation(page);
+		}
+		FPDF_ClosePage(pg);
+		return b;
 	}
 
 	bool EnsureCache(int page, int w, int h)
@@ -237,6 +277,53 @@ namespace
 		return true;
 	}
 
+	// 2쪽 모아찍기 미리보기: 용지 한 장에 지금 장의 두 페이지를 실제 인쇄와 같은 배치로 그린다
+	void PaintTwoUpPreview(HDC dc, const RECT& rc, double aw, double ah)
+	{
+		State* s = g;
+		const Paper& p = s->paper;
+		const double k = std::min(aw / p.physW, ah / p.physH);
+		const int pw = std::max(1, (int)(p.physW * k)), ph = std::max(1, (int)(p.physH * k));
+		const int px = (rc.right - pw) / 2, py = (rc.bottom - ph) / 2;
+
+		RECT sh = { px + 3, py + 3, px + pw + 3, py + ph + 3 };
+		HBRUSH bs = CreateSolidBrush(RGB(205, 208, 214)); FillRect(dc, &sh, bs); DeleteObject(bs);
+		RECT paper = { px, py, px + pw, py + ph };
+		HBRUSH bw = CreateSolidBrush(RGB(255, 255, 255)); FillRect(dc, &paper, bw); DeleteObject(bw);
+		HBRUSH bb = CreateSolidBrush(RGB(190, 193, 200)); FrameRect(dc, &paper, bb);
+
+		int f, t; GetRange(f, t);
+		const int first = SheetStart(s->previewPage, f);
+		int saved = SaveDC(dc);
+		IntersectClipRect(dc, px + 1, py + 1, px + pw - 1, py + ph - 1);
+		for (int slot = 0; slot < 2; ++slot)
+		{
+			const int page = first + slot;
+			double pdfW = 0, pdfH = 0;
+			if (page > t || !PageSize(page, pdfW, pdfH)) continue;
+			double x, y, w, h;
+			TwoUpCell(slot, p.printW, p.printH, pdfW * p.dpiX / 72.0, pdfH * p.dpiY / 72.0, x, y, w, h);
+			const int dx = px + (int)((p.offX + x) * k), dy = py + (int)((p.offY + y) * k);
+			const int dw = std::max(1, (int)(w * k)), dh = std::max(1, (int)(h * k));
+			if (dw > 6000 || dh > 6000) continue;
+			FPDF_BITMAP bmp = CachedRender(s->two[slot], page, dw, dh);
+			if (!bmp) continue;
+			BITMAPINFO bmi = {};
+			bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+			bmi.bmiHeader.biWidth       = FPDFBitmap_GetStride(bmp) / 4;
+			bmi.bmiHeader.biHeight      = -dh;
+			bmi.bmiHeader.biPlanes      = 1;
+			bmi.bmiHeader.biBitCount    = 32;
+			bmi.bmiHeader.biCompression = BI_RGB;
+			StretchDIBits(dc, dx, dy, dw, dh, 0, 0, dw, dh, FPDFBitmap_GetBuffer(bmp), &bmi, DIB_RGB_COLORS, SRCCOPY);
+			// 흰 용지 위에서 페이지 경계가 보이도록 미리보기에만 옅은 테두리
+			RECT pr = { dx, dy, dx + dw, dy + dh };
+			FrameRect(dc, &pr, bb);
+		}
+		RestoreDC(dc, saved);
+		DeleteObject(bb);
+	}
+
 	void PaintPreview(HDC dc, const RECT& rc)
 	{
 		State* s = g;
@@ -248,6 +335,12 @@ namespace
 		const int M = 18;
 		double aw = rc.right - 2.0 * M, ah = rc.bottom - 2.0 * M;
 		if (aw < 10 || ah < 10) return;
+
+		if (TwoUp())
+		{
+			PaintTwoUpPreview(dc, rc, aw, ah);
+			return;
+		}
 
 		if (Checked(s->hRadPoster))
 		{
@@ -347,8 +440,9 @@ namespace
 	{
 		State* s = g;
 		int f, t; GetRange(f, t);
+		const int step = TwoUp() ? 2 : 1;
 		EnableWindow(s->hPrev, s->previewPage > f);
-		EnableWindow(s->hNext, s->previewPage < t);
+		EnableWindow(s->hNext, s->previewPage + step <= t);
 		InvalidateRect(s->hDlg, &NAV_LABEL_RC, FALSE);
 	}
 
@@ -358,6 +452,7 @@ namespace
 		if (!s->ready) return;
 		int f, t; GetRange(f, t);
 		s->previewPage = std::clamp(s->previewPage, f, t);
+		if (TwoUp()) s->previewPage = SheetStart(s->previewPage, f); // 장의 첫 페이지로 맞춘다
 		UpdatePaper();
 		UpdateNav();
 		InvalidateRect(s->hPreview, nullptr, FALSE);
@@ -490,6 +585,7 @@ namespace
 		s->out->poster = Checked(s->hRadPoster);
 		s->out->posterCols = std::clamp(ReadInt(s->hEdCols, 2), 1, 10);
 		s->out->posterRows = std::clamp(ReadInt(s->hEdRows, 2), 1, 10);
+		s->out->twoUp = TwoUp();
 		s->ok = true;
 		s->done = true;
 	}
@@ -584,7 +680,11 @@ namespace
 				if (s)
 				{
 					wchar_t buf[32];
-					swprintf_s(buf, L"%d / %d", s->previewPage + 1, s->pageCount);
+					int f, t; GetRange(f, t);
+					if (TwoUp() && s->previewPage + 1 <= t)   // 이 장의 두 페이지 번호
+						swprintf_s(buf, L"%d–%d / %d", s->previewPage + 1, s->previewPage + 2, s->pageCount);
+					else
+						swprintf_s(buf, L"%d / %d", s->previewPage + 1, s->pageCount);
 					Gdiplus::StringFormat sf;
 					sf.SetAlignment(Gdiplus::StringAlignmentCenter);
 					sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
@@ -648,7 +748,9 @@ namespace
 			case ID_NEXT:
 			{
 				int f, t; GetRange(f, t);
-				s->previewPage = std::clamp(s->previewPage + (id == ID_NEXT ? 1 : -1), f, t);
+				const int step = TwoUp() ? 2 : 1; // 2쪽 모아찍기는 한 장(두 페이지)씩 넘긴다
+				s->previewPage = std::clamp(s->previewPage + (id == ID_NEXT ? step : -step), f, t);
+				if (TwoUp()) s->previewPage = SheetStart(s->previewPage, f);
 				UpdateNav();
 				InvalidateRect(s->hPreview, nullptr, FALSE);
 				return 0;
@@ -662,7 +764,7 @@ namespace
 				OnChanged();
 				return 0;
 			case ID_RAD_AUTO: case ID_RAD_PORT: case ID_RAD_LAND:
-			case ID_RAD_FIT:  case ID_RAD_ACT: case ID_RAD_POSTER:
+			case ID_RAD_FIT:  case ID_RAD_ACT: case ID_RAD_POSTER: case ID_RAD_TWOUP:
 				EnableWindow(s->hEdCols, Checked(s->hRadPoster));
 				EnableWindow(s->hEdRows, Checked(s->hRadPoster));
 				OnChanged();
@@ -818,6 +920,8 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	SendMessageW(s.hEdRows, EM_LIMITTEXT, 2, 0);
 	EnableWindow(s.hEdCols, FALSE);
 	EnableWindow(s.hEdRows, FALSE);
+
+	s.hRadTwoUp = mk(L"BUTTON", T(L"2쪽 모아찍기", L"2 pages per sheet"), BS_AUTORADIOBUTTON, 0, 32, 446, 170, 22, ID_RAD_TWOUP);
 
 	SendMessageW(s.hRadAll, BM_SETCHECK, BST_CHECKED, 0);
 	SendMessageW(s.hRadAuto, BM_SETCHECK, BST_CHECKED, 0);
