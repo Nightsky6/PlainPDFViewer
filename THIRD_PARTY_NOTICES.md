@@ -12,6 +12,9 @@ Copyright (C) 2026 Nightsky Works
 | libjpeg-turbo | BSD 3-Clause / IJG | https://libjpeg-turbo.org/About/License |
 | zlib | zlib License | https://zlib.net/zlib_license.html |
 | OpenJPEG | BSD 2-Clause | https://www.openjpeg.org/ |
+| HarfBuzz | Old MIT License | https://github.com/harfbuzz/harfbuzz |
+| Highway | Apache License 2.0 | https://github.com/google/highway |
+| Dragonbox | Apache License 2.0 with LLVM Exceptions / Boost Software License 1.0 | https://github.com/jk-jeon/dragonbox |
 | Fluent UI Emoji (open.png, save.png, printer.png) | MIT, Copyright (c) Microsoft Corporation | https://github.com/microsoft/fluentui-emoji |
 | Fluent UI System Icons (other toolbar and UI icons) | MIT, Copyright (c) 2020 Microsoft Corporation | https://github.com/microsoft/fluentui-system-icons |
 

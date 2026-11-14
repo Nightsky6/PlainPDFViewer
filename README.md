@@ -33,7 +33,7 @@ Requirements: Visual Studio 2022 or later with the "Desktop development with C++
    - `pdfium-win-x86`
    - `pdfium-win-arm64`
 
-   The PDFium version currently used by this project is **151.0.7906.0**.  
+   The PDFium version currently used by this project is **159.0.8152.0**.  
    See `third_party/pdfium/VERSION`.
 
 3. Copy `pdfium.dll` to the appropriate location:
