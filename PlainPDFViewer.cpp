@@ -3654,6 +3654,9 @@ RECT GetViewportRect(const RECT& clientRect)
 
 // ─── 그라데이션 배경 / 툴바 / 상태바 / DrawAlphaLine 은 Toolbar.h / Toolbar.cpp 참조 ──
 
+// 텍스트 선택 영역·하이라이트가 글자에 딱 붙지 않도록 위아래에 주는 여백 (줄 높이 대비)
+static constexpr double kHighlightPadRatio = 0.1;
+
 // ─── annotation rect 계산 헬퍼 ─────────────────────────────────────────────────
 // FPDFText 로부터 병합된 PDF 좌표 rect 목록을 반환한다.
 // 결과는 annotation 아이템의 cachedRects 에 저장 후 재사용한다.
@@ -3798,8 +3801,11 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
             {
                 if (r.left >= r.right) continue;
 
+                // 텍스트 선택 영역과 같게 위아래로 줄 높이의 10% 여백
+                // (밑줄·취소선도 BuildAnnotRects 를 쓰므로 캐시가 아닌 여기서 적용)
+                const double padY = (r.top - r.bottom) * kHighlightPadRatio;
                 int sx1, sy1, sx2, sy2;
-                PdfRectToScreen(r.left, r.top, r.right, r.bottom, pageW, pageH,
+                PdfRectToScreen(r.left, r.top + padY, r.right, r.bottom - padY, pageW, pageH,
                     pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx1, &sy1, &sx2, &sy2);
 
                 int cx1 = std::max(sx1, (int)vp.left);
@@ -6654,6 +6660,19 @@ void EmbedHighlightAnnotations()
         FPDF_ANNOTATION_SUBTYPE annotType = item.isStrikeout ? FPDF_ANNOT_STRIKEOUT
             : item.isSquiggly ? FPDF_ANNOT_SQUIGGLY
             : item.isUnderline ? FPDF_ANNOT_UNDERLINE : FPDF_ANNOT_HIGHLIGHT;
+
+        // 하이라이트는 화면과 같게 위아래 여백을 넣어 저장 (외부 뷰어도 같은 모양으로 보이도록)
+        // 밑줄·취소선·물결선은 선 위치가 사각형 기준이라 그대로 둠
+        if (annotType == FPDF_ANNOT_HIGHLIGHT)
+        {
+            for (auto& r : rects)
+            {
+                if (r.left >= r.right) continue;
+                const double padY = (r.top - r.bottom) * kHighlightPadRatio;
+                r.top    += padY;
+                r.bottom -= padY;
+            }
+        }
         FPDF_ANNOTATION annot = FPDFPage_CreateAnnot(workPage, annotType);
         if (!annot) continue;
 
@@ -7496,7 +7515,12 @@ static void DrawTextSelection(HDC hdc, const RECT& clientRect)
                 &g_selRectCache.rects[ri].left, &g_selRectCache.rects[ri].top,
                 &g_selRectCache.rects[ri].right, &g_selRectCache.rects[ri].bottom);
             double h = g_selRectCache.rects[ri].top - g_selRectCache.rects[ri].bottom;
-            if (h > 0) g_selRectCache.rects[ri].bottom -= h * 0.1;
+            // 글자 상자에 딱 맞으면 답답해 보이므로 위아래로 같은 여백을 줌
+            if (h > 0)
+            {
+                g_selRectCache.rects[ri].top    += h * kHighlightPadRatio;
+                g_selRectCache.rects[ri].bottom -= h * kHighlightPadRatio;
+            }
         }
 
         // 2단계: top 기준 내림차순 정렬 후 O(n) 스캔으로 같은 줄 병합
