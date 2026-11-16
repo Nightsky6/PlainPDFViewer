@@ -8215,9 +8215,9 @@ static int ThumbnailHitTest(int x, int y, const RECT& clientRect)
 #define SB_CLR_HOVER       RGB(40, 39, 52)    // 항목 hover 배경
 #define SB_CLR_ACTIVE      RGB(38, 48, 74)    // 현재 항목 배경
 #define SB_CLR_ACCENT      RGB(110, 150, 235) // 강조색
-#define SB_CLR_TEXT        RGB(222, 220, 232)
-#define SB_CLR_TEXT_DIM    RGB(158, 156, 172)
-#define SB_CLR_TEXT_MUTED  RGB(112, 110, 128)
+#define SB_CLR_TEXT        RGB(238, 237, 245)
+#define SB_CLR_TEXT_DIM    RGB(196, 194, 210) // 배경 대비 약 10:1
+#define SB_CLR_TEXT_MUTED  RGB(152, 150, 170) // 배경 대비 약 6:1 (WCAG AA 4.5:1 이상)
 
 // 현재 HDC 클리핑 영역을 그대로 따르는 GDI+ 둥근 사각형 (border == CLR_INVALID 이면 테두리 없음)
 static void SbRoundRect(HDC hdc, float x, float y, float w, float h, float r,
@@ -8272,7 +8272,7 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
 
     if (!g_pdfDoc || g_pageCount <= 0 || g_pageLayouts.empty())
     {
-        HFONT emptyFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT emptyFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         HFONT of = static_cast<HFONT>(SelectObject(hdc, emptyFont));
         SetBkMode(hdc, TRANSPARENT);
@@ -8412,7 +8412,7 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
         // 페이지 번호 (현재 페이지는 강조색 배지)
         WCHAR pageLabel[32];
         swprintf_s(pageLabel, L"%d", i + 1);
-        HFONT pgFont = CreateFontW(12, 0, 0, 0, isCurrent ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT pgFont = CreateFontW(13, 0, 0, 0, isCurrent ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, pgFont));
         SetBkMode(hdc, TRANSPARENT);
@@ -8507,7 +8507,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     SelectObject(hdc, oldFont);
     DeleteObject(icoFont);
 
-    HFONT hdrFont = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    HFONT hdrFont = CreateFontW(15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
     oldFont = static_cast<HFONT>(SelectObject(hdc, hdrFont));
     SetTextColor(hdc, SB_CLR_TEXT);
@@ -8525,7 +8525,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     {
         WCHAR cnt[16];
         swprintf_s(cnt, L"%d", g_pageCount);
-        HFONT cntFont = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT cntFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         oldFont = static_cast<HFONT>(SelectObject(hdc, cntFont));
         SIZE cs = {};
@@ -8592,7 +8592,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             const wchar_t* addLabel = LS(STR_BOOKMARK_ADD);
             if (addLabel[0] == L'+') { ++addLabel; while (*addLabel == L' ') ++addLabel; }
 
-            HFONT btnFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            HFONT btnFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
             HFONT plusFont = CreateFontW(11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
@@ -8624,7 +8624,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
         // 북마크 목록
         if (g_bookmarks.empty())
         {
-            HFONT emptyFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            HFONT emptyFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
             oldFont = static_cast<HFONT>(SelectObject(hdc, emptyFont));
             SetTextColor(hdc, SB_CLR_TEXT_MUTED);
@@ -8639,7 +8639,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             HRGN clipRgn = CreateRectRgn(0, contentTop, sbRight, listBottom);
             SelectClipRgn(hdc, clipRgn);
 
-            HFONT itemFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            HFONT itemFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
             oldFont = static_cast<HFONT>(SelectObject(hdc, itemFont));
             HFONT glyphFont = CreateFontW(10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -8705,9 +8705,9 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                 }
 
                 // 최상위 목차는 조금 더 밝게, 하위 단계는 한 톤 낮춰 계층이 보이도록
-                const COLORREF textClr = isActive ? RGB(214, 226, 255)
-                    : isHover ? SB_CLR_TEXT
-                    : (bm.level == 0 || bm.isUserAdded) ? RGB(196, 194, 208) : SB_CLR_TEXT_DIM;
+                const COLORREF textClr = isActive ? RGB(226, 234, 255)
+                    : isHover ? RGB(250, 249, 255)
+                    : (bm.level == 0 || bm.isUserAdded) ? SB_CLR_TEXT : SB_CLR_TEXT_DIM;
 
                 // 사용자 북마크: 앞에 ★, hover 시 오른쪽에 휴지통
                 int textRight = sbRight - 12;
