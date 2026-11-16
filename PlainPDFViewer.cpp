@@ -8419,13 +8419,17 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
         RECT labelRect = { tx, yy + th + 4, tx + tw, yy + th + 20 };
         if (isCurrent)
         {
+            // 원형 배지 (번호가 길면 같은 높이의 알약 모양으로 늘어남)
             SIZE ls = {};
             GetTextExtentPoint32W(hdc, pageLabel, (int)wcslen(pageLabel), &ls);
-            const int pillW = std::max(26, (int)ls.cx + 14);
+            const int badgeD = 19;
+            const int badgeW = std::max(badgeD, (int)ls.cx + 10);
             const int cx = tx + tw / 2;
-            RECT pill = { cx - pillW / 2, labelRect.top, cx - pillW / 2 + pillW, labelRect.bottom };
-            SbRoundRect(hdc, pill, 8, SB_CLR_ACCENT);
-            SetTextColor(hdc, RGB(255, 255, 255));
+            const int badgeTop = yy + th + 3;
+            RECT badge = { cx - badgeW / 2, badgeTop, cx - badgeW / 2 + badgeW, badgeTop + badgeD };
+            SbRoundRect(hdc, badge, badgeD / 2.0f, RGB(178, 192, 245));  // 부드러운 페리윙클
+            SetTextColor(hdc, RGB(22, 26, 46));                           // 짙은 남색 글자
+            labelRect = badge;
         }
         else
             SetTextColor(hdc, isHover ? SB_CLR_TEXT : SB_CLR_TEXT_DIM);
