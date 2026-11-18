@@ -8234,14 +8234,15 @@ static int ThumbnailHitTest(int x, int y, const RECT& clientRect)
 }
 
 // ─── 사이드바 팔레트 / 안티앨리어싱 둥근 사각형 헬퍼 ─────────────────────────
-#define SB_CLR_BG          RGB(26, 25, 33)    // 사이드바 배경 (헤더 포함)
-#define SB_CLR_LINE        RGB(46, 44, 58)    // 구분선
-#define SB_CLR_HOVER       RGB(40, 39, 52)    // 항목 hover 배경
-#define SB_CLR_ACTIVE      RGB(38, 48, 74)    // 현재 항목 배경
-#define SB_CLR_ACCENT      RGB(110, 150, 235) // 강조색
-#define SB_CLR_TEXT        RGB(238, 237, 245)
-#define SB_CLR_TEXT_DIM    RGB(196, 194, 210) // 배경 대비 약 10:1
-#define SB_CLR_TEXT_MUTED  RGB(152, 150, 170) // 배경 대비 약 6:1 (WCAG AA 4.5:1 이상)
+#include "PanelTheme.h"   // 밝은 테마 / 야간 모드에서는 어두운 테마
+#define SB_CLR_BG          (PanelPal().bg)       // 사이드바 배경 (헤더 포함)
+#define SB_CLR_LINE        (PanelPal().line)     // 구분선
+#define SB_CLR_HOVER       (PanelPal().hover)    // 항목 hover 배경
+#define SB_CLR_ACTIVE      (PanelPal().active)   // 현재 항목 배경
+#define SB_CLR_ACCENT      (PanelPal().accent)   // 강조색
+#define SB_CLR_TEXT        (PanelPal().text)
+#define SB_CLR_TEXT_DIM    (PanelPal().textDim)
+#define SB_CLR_TEXT_MUTED  (PanelPal().textMuted)
 
 // 현재 HDC 클리핑 영역을 그대로 따르는 GDI+ 둥근 사각형 (border == CLR_INVALID 이면 테두리 없음)
 static void SbRoundRect(HDC hdc, float x, float y, float w, float h, float r,
@@ -8338,8 +8339,8 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
         }
 
         // 썸네일 그림자 (아래쪽으로 퍼지는 은은한 그림자)
-        SbRoundRect(hdc, (float)tx - 2, (float)yy, (float)tw + 4, (float)th + 4, 4, RGB(0, 0, 0), 40);
-        SbRoundRect(hdc, (float)tx - 1, (float)yy, (float)tw + 2, (float)th + 2, 3, RGB(0, 0, 0), 70);
+        SbRoundRect(hdc, (float)tx - 2, (float)yy, (float)tw + 4, (float)th + 4, 4, RGB(0, 0, 0), PanelPal().thumbShadow1);
+        SbRoundRect(hdc, (float)tx - 1, (float)yy, (float)tw + 2, (float)th + 2, 3, RGB(0, 0, 0), PanelPal().thumbShadow2);
 
         // 썸네일 캐시 확인
         bool thumbValid = (i < (int)g_thumbCache.size()
@@ -8431,12 +8432,12 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
                 CLR_INVALID, 255, SB_CLR_ACCENT, 2.0f);
         else
             SbRoundRect(hdc, (float)tx, (float)yy, (float)tw, (float)th, 0,
-                CLR_INVALID, 255, isHover ? RGB(90, 88, 110) : RGB(52, 50, 64));
+                CLR_INVALID, 255, isHover ? PanelPal().thumbLineHot : PanelPal().thumbLine);
 
         // 페이지 번호 (현재 페이지는 강조색 배지)
         WCHAR pageLabel[32];
         swprintf_s(pageLabel, L"%d", i + 1);
-        HFONT pgFont = CreateFontW(13, 0, 0, 0, isCurrent ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
+        HFONT pgFont = CreateFontW(isCurrent ? 12 : 13, 0, 0, 0, isCurrent ? FW_BOLD : FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, pgFont));
         SetBkMode(hdc, TRANSPARENT);
@@ -8446,13 +8447,13 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
             // 원형 배지 (번호가 길면 같은 높이의 알약 모양으로 늘어남)
             SIZE ls = {};
             GetTextExtentPoint32W(hdc, pageLabel, (int)wcslen(pageLabel), &ls);
-            const int badgeD = 19;
-            const int badgeW = std::max(badgeD, (int)ls.cx + 10);
+            const int badgeD = 16;                       // 썸네일 강조 링과 겹치지 않게 작게
+            const int badgeW = std::max(badgeD, (int)ls.cx + 8);
             const int cx = tx + tw / 2;
-            const int badgeTop = yy + th + 3;
+            const int badgeTop = yy + th + 5;                // 링(아래로 2.5px) 아래에 여백을 두고 배치
             RECT badge = { cx - badgeW / 2, badgeTop, cx - badgeW / 2 + badgeW, badgeTop + badgeD };
-            SbRoundRect(hdc, badge, badgeD / 2.0f, RGB(178, 192, 245));  // 부드러운 페리윙클
-            SetTextColor(hdc, RGB(22, 26, 46));                           // 짙은 남색 글자
+            SbRoundRect(hdc, badge, badgeD / 2.0f, PanelPal().pageBadge);
+            SetTextColor(hdc, PanelPal().pageBadgeText);
             labelRect = badge;
         }
         else
@@ -8487,7 +8488,7 @@ static void DrawSidebarThumbnails(HDC hdc, const RECT& clientRect)
 
             RECT thumbRc = { trackX + 1, thumbY + 2, trackX + THUMB_SB_W - 1, thumbY + thumbH - 2 };
             SbRoundRect(hdc, thumbRc, THUMB_SB_W / 2.0f,
-                g_thumbSbDragging ? RGB(128, 126, 150) : RGB(78, 76, 96));
+                g_thumbSbDragging ? PanelPal().scrollHot : PanelPal().scroll);
         }
     }
 }
@@ -8526,11 +8527,11 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     const int badgeSz = 22;
     RECT badgeRc = { 12, sbTop + (SIDEBAR_HEADER_H - badgeSz) / 2, 12 + badgeSz,
                      sbTop + (SIDEBAR_HEADER_H - badgeSz) / 2 + badgeSz };
-    SbRoundRect(hdc, badgeRc, 6, SB_CLR_ACCENT, 46);
+    SbRoundRect(hdc, badgeRc, 6, SB_CLR_ACCENT, PanelPal().badgeAlpha);
     HFONT icoFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, icoFont));
-    SetTextColor(hdc, RGB(150, 182, 250));
+    SetTextColor(hdc, PanelPal().accentIcon);
     DrawTextW(hdc, iconGlyph, 1, &badgeRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     SelectObject(hdc, oldFont);
     DeleteObject(icoFont);
@@ -8564,7 +8565,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
         {
             RECT pill = { px, sbTop + (SIDEBAR_HEADER_H - pillH) / 2, px + pillW,
                           sbTop + (SIDEBAR_HEADER_H - pillH) / 2 + pillH };
-            SbRoundRect(hdc, pill, pillH / 2.0f, RGB(44, 42, 56));
+            SbRoundRect(hdc, pill, pillH / 2.0f, PanelPal().pill);
             SetTextColor(hdc, SB_CLR_TEXT_DIM);
             DrawTextW(hdc, cnt, -1, &pill, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
@@ -8576,11 +8577,11 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
     {
         RECT closeRc = GetSidebarCloseBtnRect();
         if (g_sidebarHoverClose)
-            SbRoundRect(hdc, closeRc, 6, RGB(52, 50, 66));
+            SbRoundRect(hdc, closeRc, 6, PanelPal().btnHover);
         HFONT xFont = CreateFontW(10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
         HFONT oxFont = static_cast<HFONT>(SelectObject(hdc, xFont));
-        SetTextColor(hdc, g_sidebarHoverClose ? RGB(235, 233, 245) : SB_CLR_TEXT_MUTED);
+        SetTextColor(hdc, g_sidebarHoverClose ? PanelPal().closeHot : SB_CLR_TEXT_MUTED);
         DrawTextW(hdc, L"\xE711", 1, &closeRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE); // Cancel 글리프
         SelectObject(hdc, oxFont);
         DeleteObject(xFont);
@@ -8613,8 +8614,8 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             DeleteObject(footBr);
 
             SbRoundRect(hdc, addBtnRect, 6,
-                addHovered ? SB_CLR_ACTIVE : RGB(34, 33, 44), 255,
-                addHovered ? SB_CLR_ACCENT : RGB(58, 56, 72), 1.0f);
+                addHovered ? SB_CLR_ACTIVE : PanelPal().field, 255,
+                addHovered ? SB_CLR_ACCENT : PanelPal().fieldLine, 1.0f);
 
             // 문자열 앞의 "+ "는 아이콘으로 대신 그린다
             const wchar_t* addLabel = LS(STR_BOOKMARK_ADD);
@@ -8631,10 +8632,10 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
             const int btnW = addBtnRect.right - addBtnRect.left;
             int bx = addBtnRect.left + std::max(6, (btnW - (plusW + plusGap + (int)lblSz.cx)) / 2);
             SetBkMode(hdc, TRANSPARENT);
-            const COLORREF btnTxt = addHovered ? RGB(205, 218, 252) : SB_CLR_TEXT_DIM;
+            const COLORREF btnTxt = addHovered ? PanelPal().accentTextHot : SB_CLR_TEXT_DIM;
 
             SelectObject(hdc, plusFont);
-            SetTextColor(hdc, addHovered ? RGB(150, 182, 250) : SB_CLR_TEXT_DIM);
+            SetTextColor(hdc, addHovered ? PanelPal().accentIcon : SB_CLR_TEXT_DIM);
             RECT plusRc = { bx, addBtnRect.top, bx + plusW, addBtnRect.bottom };
             DrawTextW(hdc, L"\xE710", 1, &plusRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE); // Add 글리프
 
@@ -8733,8 +8734,8 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                 }
 
                 // 최상위 목차는 조금 더 밝게, 하위 단계는 한 톤 낮춰 계층이 보이도록
-                const COLORREF textClr = isActive ? RGB(226, 234, 255)
-                    : isHover ? RGB(250, 249, 255)
+                const COLORREF textClr = isActive ? PanelPal().textActive
+                    : isHover ? PanelPal().textHi
                     : (bm.level == 0 || bm.isUserAdded) ? SB_CLR_TEXT : SB_CLR_TEXT_DIM;
 
                 // 사용자 북마크: 앞에 ★, hover 시 오른쪽에 휴지통
@@ -8742,7 +8743,7 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                 if (bm.isUserAdded)
                 {
                     SelectObject(hdc, glyphFont);
-                    SetTextColor(hdc, RGB(246, 196, 84));
+                    SetTextColor(hdc, PanelPal().star);
                     RECT starRect = { itemLeft - 2, yy, itemLeft + 14, yy + SIDEBAR_ITEM_H };
                     DrawTextW(hdc, L"\xE735", 1, &starRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE); // FavoriteStarFill
                     SelectObject(hdc, itemFont);
@@ -8754,10 +8755,10 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
                     {
                         RECT delRect = { sbRight - 23, yy + (SIDEBAR_ITEM_H - 15) / 2,
                                          sbRight - 23 + 15, yy + (SIDEBAR_ITEM_H - 15) / 2 + 15 };
-                        // 원본 아이콘이 검정이라 어두운 사이드바에서 보이도록 밝은 색으로 그림
+                        // 원본 아이콘이 검정이라 테마 글자색으로 물들여 그림
                         // (아이콘 위에 커서가 있으면 삭제 동작임을 알리도록 빨간색)
                         DrawPngIconTinted(hdc, IDB_TRASH_PNG, delRect, 15,
-                            g_sidebarHoverTrash ? RGB(240, 90, 90) : SB_CLR_TEXT_DIM);
+                            g_sidebarHoverTrash ? PanelPal().danger : SB_CLR_TEXT_DIM);
                     }
                 }
 
@@ -9056,7 +9057,13 @@ static void RenderPage(HWND hWnd, HDC hdc, const RECT& clientRect)
         return;
     }
 
-    DrawGradientBackground(hdc, viewport);
+    // 그룹 패널이 미끄러져 들어오는 동안에는 패널 자리(뷰포트 밖)도 배경으로 칠해
+    // 이전 프레임의 페이지 조각이 남지 않게 한다 (세로 그라데이션이라 폭이 달라도 색은 같음)
+    {
+        RECT bgRc = viewport;
+        if (GroupPanel::IsAnimating()) bgRc.right = clientRect.right;
+        DrawGradientBackground(hdc, bgRc);
+    }
 
     if (!g_pdfDoc || g_pageCount <= 0 || g_pageLayouts.empty())
     {
@@ -9902,8 +9909,17 @@ static LRESULT CALLBACK TipWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
         int w = rc.right, h = rc.bottom;
 
-        // 배경: 어두운 반투명 느낌의 단색 (다크 슬레이트)
-        Gdiplus::SolidBrush bgBrush(Gdiplus::Color(245, 30, 30, 36));
+        // Windows 11 같은 밝은 툴팁 (야간 모드에서는 어두운 툴팁)
+        const Gdiplus::Color tipBg     = g_darkMode ? Gdiplus::Color(255, 30, 30, 36)   : Gdiplus::Color(255, 249, 249, 249);
+        const Gdiplus::Color tipBorder = g_darkMode ? Gdiplus::Color(255, 80, 80, 95)   : Gdiplus::Color(255, 214, 214, 218);
+        const Gdiplus::Color tipFg     = g_darkMode ? Gdiplus::Color(255, 220, 220, 228) : Gdiplus::Color(255, 28, 28, 30);
+
+        // 둥근 영역 밖 모서리 안티앨리어싱이 클래스 배경색(노란색)과 섞이지 않도록 먼저 같은 색으로 채움
+        {
+            Gdiplus::SolidBrush fillAll(tipBg);
+            gfx.FillRectangle(&fillAll, 0, 0, rc.right, rc.bottom);
+        }
+        Gdiplus::SolidBrush bgBrush(tipBg);
         Gdiplus::GraphicsPath path;
         int r = 6;
         path.AddArc(0, 0, r*2, r*2, 180, 90);
@@ -9913,15 +9929,27 @@ static LRESULT CALLBACK TipWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         path.CloseFigure();
         gfx.FillPath(&bgBrush, &path);
 
-        // 테두리: 약간 밝은 선
-        Gdiplus::Pen borderPen(Gdiplus::Color(180, 80, 80, 95), 1.0f);
+        // 테두리: 옅은 윤곽선
+        Gdiplus::Pen borderPen(tipBorder, 1.0f);
         gfx.DrawPath(&borderPen, &path);
 
-        // 텍스트 (탭 툴팁이면 g_tabTipText, 아니면 g_toolbarTipText)
-        const std::wstring& tipText = (hWnd == g_hTabTooltip) ? g_tabTipText : g_toolbarTipText;
+        // 텍스트: 탭 툴팁이면 g_tabTipText, 툴바 툴팁이면 g_toolbarTipText,
+        // 그 밖의 창(그룹 패널 등 다른 모듈이 만든 툴팁)은 자기 창 텍스트를 그린다
+        std::wstring ownText;
+        const std::wstring* pTip = &g_toolbarTipText;
+        if (hWnd == g_hTabTooltip) pTip = &g_tabTipText;
+        else if (hWnd != g_hToolbarTooltip)
+        {
+            int n = GetWindowTextLengthW(hWnd);
+            ownText.resize(n + 1);
+            GetWindowTextW(hWnd, ownText.data(), n + 1);
+            ownText.resize(n);
+            pTip = &ownText;
+        }
+        const std::wstring& tipText = *pTip;
         Gdiplus::FontFamily fontFamily(L"Segoe UI");
         Gdiplus::Font font(&fontFamily, 9.5f, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
-        Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 220, 220, 228));
+        Gdiplus::SolidBrush textBrush(tipFg);
         Gdiplus::StringFormat sf;
         sf.SetAlignment(Gdiplus::StringAlignmentCenter);
         sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
@@ -11402,6 +11430,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             InvalidateRect(hWnd, nullptr, FALSE);
             break;
         }
+
+        // 그룹 패널 마우스 이동 (redact/도형 모드에서 아래 break보다 먼저 처리해야
+        // 패널 호버와 커서가 갱신된다. 잉크·도형 드래그 중에는 건너뜀)
+        bool overGroupPanel = false;
+        if (GroupPanel::IsVisible() && !g_isDrawingInk && !g_isDraggingShape) {
+            RECT cr; GetClientRect(hWnd, &cr);
+            GroupPanel::OnMouseMove(hWnd, x, y, cr);
+            overGroupPanel = GroupPanel::HitTest(x, y, cr);
+        }
+
         if (g_redactMode)
             break; // redact 모드에서는 다른 마우스 이동 처리 차단
 
@@ -11423,14 +11461,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         if (g_shapeMode != 0)
         {
-            SetCursor(LoadCursor(nullptr, IDC_CROSS));
+            if (!overGroupPanel)  // 패널 위 커서는 패널이 정함
+                SetCursor(LoadCursor(nullptr, IDC_CROSS));
             break;
-        }
-
-        // 그룹 패널 마우스 이동
-        if (GroupPanel::IsVisible()) {
-            RECT cr; GetClientRect(hWnd, &cr);
-            GroupPanel::OnMouseMove(hWnd, x, y, cr);
         }
 
         // 스포트라이트 드래그 업데이트
@@ -12031,7 +12064,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
 
     case WM_MOUSELEAVE:
-        GroupPanel::OnMouseLeave();
+        GroupPanel::OnMouseLeave(hWnd);
         g_trackingMouse = false;
         // 사이드바 hover 초기화 (창을 벗어나면 휴지통/hover 표시가 남지 않도록)
         if (g_sidebarHoverIdx != -1 || g_sidebarHoverTrash || g_sidebarHoverClose)
@@ -12145,14 +12178,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 return TRUE;
             }
 
-            // 그룹 패널 영역: OnMouseMove에서 이미 커서 설정했으므로 그대로 유지
-            if (GroupPanel::IsVisible()) {
+            // 그룹 패널 영역: 패널이 직접 커서를 정함 (손 도구·주석 도구 커서보다 우선)
+            {
                 RECT cr; GetClientRect(hWnd, &cr);
-                RECT gpr = GroupPanel::GetPanelRect(cr);
-                if (pt.x >= gpr.left && pt.x < gpr.right &&
-                    pt.y >= gpr.top  && pt.y < gpr.bottom) {
-                    return TRUE; // DefWindowProc 호출 안 함 → 커서 유지
-                }
+                if (GroupPanel::OnSetCursor(pt.x, pt.y, cr))
+                    return TRUE;
             }
 
             // 탭바 X 닫기 버튼 위: 손 커서
@@ -12354,12 +12384,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int x = GET_X_LPARAM(lParam);
         int y = GET_Y_LPARAM(lParam);
 
-        // 그룹 패널
-        if (GroupPanel::IsVisible()) {
-            RECT cr; GetClientRect(hWnd, &cr);
-            GroupPanel::OnLButtonDown(hWnd, x, y, cr);
-        }
-
         // QuickJump 팝업이 열려 있을 때 처리
         if (g_hQJPopup)
         {
@@ -12376,6 +12400,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 POINT pt2 = { x, y };
                 if (PtInRect(&qjBtn2, pt2)) break;
             }
+        }
+
+        // 그룹 패널 위 클릭은 패널만 처리 (아래 페이지의 선택·패닝·주석 도구로 넘기지 않음)
+        {
+            RECT cr; GetClientRect(hWnd, &cr);
+            if (GroupPanel::OnLButtonDown(hWnd, x, y, cr)) break;
         }
 
         // 화면 잠금: 툴바는 허용, 드래그 펨인 방지만 (WM_MOUSEMOVE에서 SetCapture 허용)
@@ -13077,9 +13107,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
         }
 
-        if (GroupPanel::IsVisible()) {
+        // 패널에서 시작된 클릭이면 패널이 처리하고 끝 (폼 필드 등으로 넘기지 않음)
+        {
             RECT cr; GetClientRect(hWnd, &cr);
-            GroupPanel::OnLButtonUp(hWnd, xUp, yUp, cr);
+            if (GroupPanel::OnLButtonUp(hWnd, xUp, yUp, cr)) break;
         }
 
         // 폼 필드 마우스 UP 전달
@@ -13332,6 +13363,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int mx = GET_X_LPARAM(lParam);
         int my = GET_Y_LPARAM(lParam);
 
+        // 그룹 패널 위 더블클릭: 두 번째 클릭으로 취급 (페이지 단어 선택 등 방지)
+        {
+            RECT crg; GetClientRect(hWnd, &crg);
+            if (GroupPanel::OnLButtonDown(hWnd, mx, my, crg)) break;
+        }
+
         // 텍스트 편집 모드: 더블클릭도 한 번 클릭과 같게 처리 (단어 선택 등 방지)
         if (TextEdit::OnLButtonDown(hWnd, mx, my))
             break;
@@ -13465,6 +13502,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_RBUTTONDOWN:
     {
+        // 그룹 패널 위 우클릭: 패널 메뉴(그룹 삭제 등)만, 페이지 컨텍스트 메뉴는 띄우지 않음
+        {
+            RECT crg; GetClientRect(hWnd, &crg);
+            if (GroupPanel::OnRButtonDown(hWnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), crg)) break;
+        }
         // 잠금 시에도 우클릭 컨텍스트 메뉴(주석 삭제, 복사 등)는 허용
         // 드래그/캡처 상태를 즉시 정리
         if (GetCapture() == hWnd)
@@ -14194,7 +14236,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             RECT cr; GetClientRect(hWnd, &cr);
             RECT pr = GroupPanel::GetPanelRect(cr);
             if (PtInRect(&pr, pt)) {
-                GroupPanel::OnMouseWheel(delta);
+                GroupPanel::OnMouseWheel(delta, cr);
                 RECT inv = { pr.left, pr.top, pr.right, pr.bottom };
                 InvalidateRect(hWnd, &inv, FALSE);
                 return 0;
