@@ -27,22 +27,15 @@ namespace
 		ID_COMBO = 101, ID_PROPS, ID_COPIES, ID_RAD_ALL, ID_RAD_CUR, ID_RAD_RNG,
 		ID_ED_FROM, ID_ED_TO, ID_RAD_AUTO, ID_RAD_PORT, ID_RAD_LAND,
 		ID_RAD_FIT, ID_RAD_ACT, ID_PREV, ID_NEXT, ID_RAD_POSTER, ID_ED_COLS, ID_ED_ROWS,
-		ID_RAD_TWOUP, ID_COPY_DEC, ID_COPY_INC
+		ID_RAD_TWOUP
 	};
 
 	// 미리보기용 렌더 캐시 한 칸
 	struct PvCache { FPDF_BITMAP bmp = nullptr; int page = -1, w = 0, h = 0, rot = -1; };
 
 	constexpr int DLG_CW = 900;
-	constexpr int DLG_CH = 590;
-	const RECT NAV_LABEL_RC = { 586, 530, 690, 562 };
-
-	// Windows 11 풍 색
-	const COLORREF kWinBg   = RGB(243, 243, 246);   // 창 바탕
-	const COLORREF kEditOff = RGB(245, 245, 247);   // 꺼진 입력 상자 바탕
-	const Gdiplus::Color kAccent(255, 0, 95, 184);
-	const Gdiplus::Color kAccentText(255, 0, 84, 166);
-	Gdiplus::Color ToColor(COLORREF c) { return Gdiplus::Color(255, GetRValue(c), GetGValue(c), GetBValue(c)); }
+	constexpr int DLG_CH = 560;
+	const RECT NAV_LABEL_RC = { 586, 500, 690, 532 };
 
 	struct Paper
 	{
@@ -61,7 +54,6 @@ namespace
 		HWND hRadFit = nullptr, hRadAct = nullptr;
 		HWND hRadPoster = nullptr, hEdCols = nullptr, hEdRows = nullptr;
 		HWND hRadTwoUp = nullptr;
-		HWND hCopyDec = nullptr, hCopyInc = nullptr;
 		PvCache two[2];               // 2쪽 모아찍기 미리보기의 두 페이지
 		HWND hPrev = nullptr, hNext = nullptr, hPrint = nullptr, hCancel = nullptr;
 		FPDF_DOCUMENT doc = nullptr;
@@ -80,9 +72,8 @@ namespace
 
 		int  hotId = 0;
 		bool ready = false, done = false, ok = false;
-		bool kbdFocus = false;        // 키보드로 이동했을 때만 포커스 링 표시
 		HFONT  font = nullptr;
-		HBRUSH brWhite = nullptr, brDisabled = nullptr;
+		HBRUSH brWhite = nullptr;
 		PrintDialogResult* out = nullptr;
 	};
 
@@ -102,35 +93,7 @@ namespace
 		return en;
 	}
 
-	// 선택지(라디오)는 소유자 그리기 버튼이라 선택 상태를 창 사용자 데이터에 둔다
-	bool Checked(HWND h) { return h && GetWindowLongPtrW(h, GWLP_USERDATA) != 0; }
-
-	void SetCheck(HWND h, bool on)
-	{
-		if (!h) return;
-		SetWindowLongPtrW(h, GWLP_USERDATA, on ? 1 : 0);
-		InvalidateRect(h, nullptr, FALSE);
-	}
-
-	bool IsRadioId(int id)
-	{
-		return (id >= ID_RAD_ALL && id <= ID_RAD_RNG) || (id >= ID_RAD_AUTO && id <= ID_RAD_ACT)
-			|| id == ID_RAD_POSTER || id == ID_RAD_TWOUP;
-	}
-
-	// 같은 묶음 안에서 하나만 켠다
-	void SelectRadio(int id)
-	{
-		State* s = g;
-		const std::vector<HWND> groups[] = {
-			{ s->hRadAll, s->hRadCur, s->hRadRng },
-			{ s->hRadAuto, s->hRadPort, s->hRadLand },
-			{ s->hRadFit, s->hRadAct, s->hRadPoster, s->hRadTwoUp } };
-		HWND target = GetDlgItem(s->hDlg, id);
-		for (const auto& grp : groups)
-			if (std::find(grp.begin(), grp.end(), target) != grp.end())
-				for (HWND b : grp) SetCheck(b, b == target);
-	}
+	bool Checked(HWND h) { return h && SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED; }
 
 	int ReadInt(HWND h, int def)
 	{
@@ -314,44 +277,6 @@ namespace
 		return true;
 	}
 
-	void RoundPath(Gdiplus::GraphicsPath& p, float x, float y, float w, float h, float r)
-	{
-		p.AddArc(x, y, r * 2, r * 2, 180.f, 90.f);
-		p.AddArc(x + w - r * 2, y, r * 2, r * 2, 270.f, 90.f);
-		p.AddArc(x + w - r * 2, y + h - r * 2, r * 2, r * 2, 0.f, 90.f);
-		p.AddArc(x, y + h - r * 2, r * 2, r * 2, 90.f, 90.f);
-		p.CloseFigure();
-	}
-
-	// 미리보기 영역: 창 바탕 위에 둥근 회색 패널
-	void PreviewBackground(HDC dc, const RECT& rc)
-	{
-		HBRUSH b = CreateSolidBrush(kWinBg); FillRect(dc, &rc, b); DeleteObject(b);
-		Gdiplus::Graphics gfx(dc);
-		gfx.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-		Gdiplus::GraphicsPath path;
-		RoundPath(path, 0.5f, 0.5f, rc.right - 1.f, rc.bottom - 1.f, 8.f);
-		Gdiplus::SolidBrush fill(Gdiplus::Color(255, 232, 233, 238));
-		gfx.FillPath(&fill, &path);
-		Gdiplus::Pen pen(Gdiplus::Color(255, 222, 223, 229), 1.f);
-		gfx.DrawPath(&pen, &path);
-	}
-
-	// 용지 그림자: 아래쪽으로 살짝 퍼지는 부드러운 그림자 (반투명 여러 겹)
-	void PaperShadow(HDC dc, const RECT& r)
-	{
-		Gdiplus::Graphics gfx(dc);
-		gfx.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-		for (int k = 4; k >= 1; --k)
-		{
-			Gdiplus::GraphicsPath path;
-			RoundPath(path, (float)r.left - k, (float)r.top - k + 2, (float)(r.right - r.left) + 2.f * k,
-					  (float)(r.bottom - r.top) + 2.f * k, (float)k + 1.f);
-			Gdiplus::SolidBrush b(Gdiplus::Color((BYTE)(10 + (4 - k) * 6), 0, 0, 0));
-			gfx.FillPath(&b, &path);
-		}
-	}
-
 	// 2쪽 모아찍기 미리보기: 용지 한 장에 지금 장의 두 페이지를 실제 인쇄와 같은 배치로 그린다
 	void PaintTwoUpPreview(HDC dc, const RECT& rc, double aw, double ah)
 	{
@@ -361,10 +286,11 @@ namespace
 		const int pw = std::max(1, (int)(p.physW * k)), ph = std::max(1, (int)(p.physH * k));
 		const int px = (rc.right - pw) / 2, py = (rc.bottom - ph) / 2;
 
+		RECT sh = { px + 3, py + 3, px + pw + 3, py + ph + 3 };
+		HBRUSH bs = CreateSolidBrush(RGB(205, 208, 214)); FillRect(dc, &sh, bs); DeleteObject(bs);
 		RECT paper = { px, py, px + pw, py + ph };
-		PaperShadow(dc, paper);
 		HBRUSH bw = CreateSolidBrush(RGB(255, 255, 255)); FillRect(dc, &paper, bw); DeleteObject(bw);
-		HBRUSH bb = CreateSolidBrush(RGB(214, 215, 221)); FrameRect(dc, &paper, bb);
+		HBRUSH bb = CreateSolidBrush(RGB(190, 193, 200)); FrameRect(dc, &paper, bb);
 
 		int f, t; GetRange(f, t);
 		const int first = SheetStart(s->previewPage, f);
@@ -401,7 +327,9 @@ namespace
 	void PaintPreview(HDC dc, const RECT& rc)
 	{
 		State* s = g;
-		PreviewBackground(dc, rc);
+		HBRUSH bg = CreateSolidBrush(RGB(236, 238, 242));
+		FillRect(dc, &rc, bg);
+		DeleteObject(bg);
 
 		const Paper& p = s->paper;
 		const int M = 18;
@@ -425,7 +353,6 @@ namespace
 			const int tw = std::max(1, (int)(totW * kk)), th = std::max(1, (int)(totH * kk));
 			const int tx = (rc.right - tw) / 2, ty = (rc.bottom - th) / 2;
 			RECT area = { tx, ty, tx + tw, ty + th };
-			PaperShadow(dc, area);
 			HBRUSH bw2 = CreateSolidBrush(RGB(255, 255, 255)); FillRect(dc, &area, bw2); DeleteObject(bw2);
 
 			double pw0 = 0, ph0 = 0;
@@ -476,10 +403,11 @@ namespace
 		int pw = std::max(1, (int)(p.physW * k)), ph = std::max(1, (int)(p.physH * k));
 		int px = (rc.right - pw) / 2, py = (rc.bottom - ph) / 2;
 
+		RECT sh = { px + 3, py + 3, px + pw + 3, py + ph + 3 };
+		HBRUSH bs = CreateSolidBrush(RGB(205, 208, 214)); FillRect(dc, &sh, bs); DeleteObject(bs);
 		RECT paper = { px, py, px + pw, py + ph };
-		PaperShadow(dc, paper);
 		HBRUSH bw = CreateSolidBrush(RGB(255, 255, 255)); FillRect(dc, &paper, bw); DeleteObject(bw);
-		HBRUSH bb = CreateSolidBrush(RGB(214, 215, 221)); FrameRect(dc, &paper, bb); DeleteObject(bb);
+		HBRUSH bb = CreateSolidBrush(RGB(190, 193, 200)); FrameRect(dc, &paper, bb); DeleteObject(bb);
 
 		double pdfW = 0, pdfH = 0;
 		if (!PageSize(s->previewPage, pdfW, pdfH)) return;
@@ -530,35 +458,17 @@ namespace
 		InvalidateRect(s->hPreview, nullptr, FALSE);
 	}
 
-	// Segoe 아이콘 글꼴 (MDL2 우선, 없으면 Fluent Icons)
-	const wchar_t* IconFontName()
+	void RoundPath(Gdiplus::GraphicsPath& p, float x, float y, float w, float h, float r)
 	{
-		static const wchar_t* name = nullptr;
-		if (!name)
-		{
-			Gdiplus::FontFamily f(L"Segoe MDL2 Assets");
-			name = f.IsAvailable() ? L"Segoe MDL2 Assets" : L"Segoe Fluent Icons";
-		}
-		return name;
+		p.AddArc(x, y, r * 2, r * 2, 180.f, 90.f);
+		p.AddArc(x + w - r * 2, y, r * 2, r * 2, 270.f, 90.f);
+		p.AddArc(x + w - r * 2, y + h - r * 2, r * 2, r * 2, 0.f, 90.f);
+		p.AddArc(x, y + h - r * 2, r * 2, r * 2, 90.f, 90.f);
+		p.CloseFigure();
 	}
 
-	enum class BtnKind { Primary, Secondary, Nav, Segment, Stepper, Select };
-
-	BtnKind KindOf(int id)
-	{
-		if (id == IDOK) return BtnKind::Primary;
-		if (id == ID_PREV || id == ID_NEXT) return BtnKind::Nav;
-		if (id == ID_COPY_DEC || id == ID_COPY_INC) return BtnKind::Stepper;
-		if (id == ID_COMBO) return BtnKind::Select;
-		if (IsRadioId(id)) return BtnKind::Segment;
-		return BtnKind::Secondary;
-	}
-
-	// Windows 11 풍 버튼: 기본(강조색), 보조(흰 바탕+테두리), 선택지(켜지면 옅은 강조색),
-	// 부수 −/+, 프린터 선택 상자, 미리보기 넘김(둥근 투명 버튼)
 	void DrawBtn(DRAWITEMSTRUCT* di)
 	{
-		using namespace Gdiplus;
 		State* s = g;
 		RECT rc = di->rcItem;
 		int w = rc.right - rc.left, h = rc.bottom - rc.top;
@@ -566,110 +476,71 @@ namespace
 		HBITMAP bm = CreateCompatibleBitmap(di->hDC, w, h);
 		HGDIOBJ old = SelectObject(mem, bm);
 		{
-			Graphics gfx(mem);
-			gfx.SetSmoothingMode(SmoothingModeAntiAlias);
-			gfx.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+			Gdiplus::Graphics gfx(mem);
+			gfx.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+			gfx.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
 
 			const int id = (int)di->CtlID;
-			const BtnKind kind = KindOf(id);
 			const bool pressed = (di->itemState & ODS_SELECTED) != 0;
 			const bool dis = (di->itemState & ODS_DISABLED) != 0;
 			const bool hot = !dis && s->hotId == id;
-			const bool focus = (di->itemState & ODS_FOCUS) != 0 && s->kbdFocus;
-			const bool on = kind == BtnKind::Segment && Checked(di->hwndItem);
+			const bool nav = (id == ID_PREV || id == ID_NEXT);
+			const bool primary = (id == IDOK);
 
-			// 버튼 바깥: 미리보기 넘김 버튼은 창 바탕, 나머지는 흰 카드 위
-			gfx.Clear(kind == BtnKind::Nav ? ToColor(kWinBg) : Color(255, 255, 255, 255));
+			gfx.Clear(nav ? Gdiplus::Color(255, 247, 248, 250) : Gdiplus::Color(255, 255, 255, 255));
 
-			GraphicsPath path;
-			const float rad = (kind == BtnKind::Nav) ? (h - 1) / 2.f : 6.f;
-			RoundPath(path, 0.5f, 0.5f, (float)w - 1.f, (float)h - 1.f, rad);
+			Gdiplus::GraphicsPath path;
+			RoundPath(path, 0.5f, 0.5f, (float)w - 1.f, (float)h - 1.f, 6.f);
 
-			Color fill(0, 0, 0, 0), border(0, 0, 0, 0), txt(255, 28, 28, 32);
-			switch (kind)
+			Gdiplus::Color fill, txt, gTop, gBot;
+			if (primary)
 			{
-			case BtnKind::Primary:
-				fill = dis ? Color(255, 200, 200, 204)
-					 : pressed ? Color(255, 49, 129, 200)
-					 : hot ? Color(255, 25, 110, 191) : kAccent;
-				txt = Color(255, 255, 255, 255);
-				break;
-			case BtnKind::Nav:
-				if (!dis && (hot || pressed))
-					fill = pressed ? Color(255, 214, 215, 221) : Color(255, 226, 227, 233);
-				txt = dis ? Color(255, 182, 183, 188) : Color(255, 60, 60, 66);
-				break;
-			case BtnKind::Segment:
-				if (on)
-				{
-					fill = Color(255, 229, 238, 251);
-					border = kAccent;
-					txt = dis ? Color(255, 150, 150, 156) : kAccentText;
-				}
-				else
-				{
-					fill = pressed ? Color(255, 230, 230, 234) : hot ? Color(255, 238, 238, 241) : Color(255, 245, 245, 247);
-					txt = dis ? Color(255, 160, 160, 166) : Color(255, 50, 50, 56);
-				}
-				break;
-			default:   // 보조 버튼, 부수 −/+, 프린터 선택
-				fill = dis ? Color(255, 248, 248, 249)
-					 : pressed ? Color(255, 240, 240, 242)
-					 : hot ? Color(255, 246, 246, 248) : Color(255, 255, 255, 255);
-				border = (kind == BtnKind::Select && hot) ? Color(255, 160, 160, 168) : Color(255, 209, 209, 214);
-				txt = dis ? Color(255, 160, 160, 166) : Color(255, 28, 28, 32);
-				break;
-			}
-			if (fill.GetA())   { SolidBrush fb(fill); gfx.FillPath(&fb, &path); }
-			if (border.GetA()) { Pen bp(border, 1.f); gfx.DrawPath(&bp, &path); }
-
-			FontFamily ff(L"Segoe UI");
-			FontFamily semi(L"Segoe UI Semibold");
-			FontFamily icf(IconFontName());
-			StringFormat sf;
-			sf.SetAlignment(StringAlignmentCenter);
-			sf.SetLineAlignment(StringAlignmentCenter);
-			sf.SetFormatFlags(StringFormatFlagsNoWrap);
-			sf.SetTrimming(StringTrimmingEllipsisCharacter);
-			SolidBrush tb(txt);
-			auto glyph = [&](const wchar_t* ch, const RectF& r, float px, Brush* b)
-			{
-				Font f(&icf, px, FontStyleRegular, UnitPixel);
-				gfx.DrawString(ch, 1, &f, r, &sf, b);
-			};
-
-			wchar_t text[256] = {};
-			GetWindowTextW(di->hwndItem, text, 256);
-			if (kind == BtnKind::Nav)
-				glyph(id == ID_PREV ? L"\xE76B" : L"\xE76C", RectF(0, 0, (float)w, (float)h), 12.f, &tb);  // ChevronLeft / Right
-			else if (kind == BtnKind::Stepper)
-				glyph(id == ID_COPY_DEC ? L"\xE738" : L"\xE710", RectF(0, 0, (float)w, (float)h), 11.f, &tb); // Remove / Add
-			else if (kind == BtnKind::Select)
-			{
-				SolidBrush ib(Color(255, 96, 96, 104));
-				glyph(L"\xE749", RectF(8, 0, 22, (float)h), 14.f, &ib);                    // Print
-				glyph(L"\xE70D", RectF((float)w - 30, 0, 22, (float)h), 10.f, &ib);        // ChevronDown
-				StringFormat sl;
-				sl.SetLineAlignment(StringAlignmentCenter);
-				sl.SetFormatFlags(StringFormatFlagsNoWrap);
-				sl.SetTrimming(StringTrimmingEllipsisCharacter);
-				Font f(&ff, 9.f, FontStyleRegular, UnitPoint);
-				gfx.DrawString(text, -1, &f, RectF(34, 0, (float)w - 66, (float)h), &sl, &tb);
+				gTop = hot ? Gdiplus::Color(255, 14, 148, 244) : Gdiplus::Color(255, 0, 137, 230);
+				gBot = hot ? Gdiplus::Color(255, 0, 100, 185) : Gdiplus::Color(255, 0, 108, 196);
+				if (pressed) { gTop = Gdiplus::Color(255, 0, 100, 185); gBot = Gdiplus::Color(255, 0, 84, 153); }
+				txt = Gdiplus::Color(255, 255, 255, 255);
 			}
 			else
 			{
-				const bool useSemi = (kind == BtnKind::Segment && on) && semi.IsAvailable();
-				Font f(useSemi ? &semi : &ff, 9.f, FontStyleRegular, UnitPoint);
-				gfx.DrawString(text, -1, &f, RectF(4, 0, (float)w - 8, (float)h), &sf, &tb);
+				gTop = hot ? Gdiplus::Color(255, 245, 245, 245) : Gdiplus::Color(255, 255, 255, 255);
+				gBot = hot ? Gdiplus::Color(255, 230, 230, 230) : Gdiplus::Color(255, 242, 242, 242);
+				if (pressed) { gTop = Gdiplus::Color(255, 230, 230, 230); gBot = Gdiplus::Color(255, 218, 218, 218); }
+				txt = dis ? Gdiplus::Color(255, 175, 177, 182) : Gdiplus::Color(255, 45, 45, 45);
+			}
+			Gdiplus::LinearGradientBrush fb(Gdiplus::PointF(0.f, 0.f), Gdiplus::PointF(0.f, (float)h), gTop, gBot);
+			gfx.FillPath(&fb, &path);
+			if (!primary)
+			{
+				Gdiplus::Pen bp(Gdiplus::Color(255, 200, 200, 200), 1.f);
+				gfx.DrawPath(&bp, &path);
 			}
 
-			// 키보드 포커스 링 (Windows 11처럼 짙은 링)
-			if (focus)
+			if (nav)
 			{
-				GraphicsPath fp;
-				RoundPath(fp, 1.5f, 1.5f, (float)w - 3.f, (float)h - 3.f, std::max(1.f, rad - 1.f));
-				Pen fpen(Color(255, 28, 28, 32), 2.f);
-				gfx.DrawPath(&fpen, &fp);
+				Gdiplus::Pen ap(txt, 2.f);
+				float cx = w / 2.f, cy = h / 2.f;
+				if (id == ID_PREV)
+				{
+					gfx.DrawLine(&ap, cx + 3.f, cy - 6.f, cx - 3.f, cy);
+					gfx.DrawLine(&ap, cx - 3.f, cy, cx + 3.f, cy + 6.f);
+				}
+				else
+				{
+					gfx.DrawLine(&ap, cx - 3.f, cy - 6.f, cx + 3.f, cy);
+					gfx.DrawLine(&ap, cx + 3.f, cy, cx - 3.f, cy + 6.f);
+				}
+			}
+			else
+			{
+				wchar_t text[64] = {};
+				GetWindowTextW(di->hwndItem, text, 64);
+				Gdiplus::FontFamily ff(L"Segoe UI");
+				Gdiplus::Font font(&ff, 9.f, Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
+				Gdiplus::SolidBrush tb(txt);
+				Gdiplus::StringFormat sf;
+				sf.SetAlignment(Gdiplus::StringAlignmentCenter);
+				sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+				gfx.DrawString(text, -1, &font, Gdiplus::RectF(0, 0, (float)w, (float)h), &sf, &tb);
 			}
 		}
 		BitBlt(di->hDC, rc.left, rc.top, w, h, mem, 0, 0, SRCCOPY);
@@ -747,71 +618,31 @@ namespace
 		return TRUE;
 	}
 
-	// 입력 상자 테두리 영역 (부모 창이 그린다) — 상자보다 3px 바깥
-	RECT EditFrame(HWND ed)
-	{
-		RECT r; GetWindowRect(ed, &r);
-		MapWindowPoints(nullptr, g->hDlg, reinterpret_cast<POINT*>(&r), 2);
-		InflateRect(&r, 3, 3);
-		return r;
-	}
-
-	bool IsEditId(int id)
-	{
-		return id == ID_COPIES || id == ID_ED_FROM || id == ID_ED_TO || id == ID_ED_COLS || id == ID_ED_ROWS;
-	}
-
-	void PickPrinter()
-	{
-		State* s = g;
-		HMENU menu = CreatePopupMenu();
-		for (size_t i = 0; i < s->printers.size(); ++i)
-			AppendMenuW(menu, MF_STRING | (i == (size_t)s->sel ? MF_CHECKED : 0), 1000 + (UINT)i, s->printers[i].c_str());
-		RECT r; GetWindowRect(s->hCombo, &r);
-		const int cmd = (int)TrackPopupMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_NONOTIFY,
-											r.left, r.bottom + 2, 0, s->hDlg, nullptr);
-		DestroyMenu(menu);
-		const int i = cmd - 1000;
-		if (cmd >= 1000 && i < (int)s->printers.size() && i != s->sel)
-		{
-			s->sel = i;
-			SetWindowTextW(s->hCombo, s->printers[i].c_str());
-			InvalidateRect(s->hCombo, nullptr, FALSE);
-			LoadDevMode(s->printers[i], s->devmode);
-			OnChanged();
-		}
-	}
-
 	LRESULT CALLBACK DlgProc(HWND h, UINT m, WPARAM w, LPARAM l)
 	{
 		State* s = g;
 		switch (m)
 		{
-		case WM_CTLCOLOREDIT:
+		case WM_CTLCOLORSTATIC:
+		case WM_CTLCOLORBTN:
 		{
 			if (!s) break;
 			HDC dc = (HDC)w;
 			SetBkColor(dc, RGB(255, 255, 255));
-			SetTextColor(dc, RGB(28, 28, 32));
-			return (LRESULT)s->brWhite;
-		}
-		case WM_CTLCOLORSTATIC:
-		{
-			// 꺼진 입력 상자는 STATIC 색을 묻는다 → 옅은 회색 바탕
-			if (!s) break;
-			HDC dc = (HDC)w;
-			SetBkColor(dc, kEditOff);
-			SetTextColor(dc, RGB(150, 150, 156));
-			return (LRESULT)s->brDisabled;
-		}
-		case WM_CTLCOLORBTN:
-		{
-			if (!s) break;
-			SetBkColor((HDC)w, RGB(255, 255, 255));
+			SetTextColor(dc, IsWindowEnabled((HWND)l) ? RGB(45, 48, 55) : RGB(150, 152, 158));
 			return (LRESULT)s->brWhite;
 		}
 		case WM_ERASEBKGND:
+		{
+			// 자식 컨트롤(테마 라디오 버튼)이 부모 배경을 요청하면 흰색 카드로 채운다
+			HDC dc = (HDC)w;
+			if (WindowFromDC(dc) == h) return 1;
+			RECT r; GetClipBox(dc, &r);
+			HBRUSH b = CreateSolidBrush(RGB(255, 255, 255));
+			FillRect(dc, &r, b);
+			DeleteObject(b);
 			return 1;
+		}
 		case WM_PAINT:
 		{
 			PAINTSTRUCT ps; HDC hdc = BeginPaint(h, &ps);
@@ -820,73 +651,47 @@ namespace
 			HBITMAP bm = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
 			HGDIOBJ old = SelectObject(mem, bm);
 			{
-				using namespace Gdiplus;
-				Graphics gfx(mem);
-				gfx.SetSmoothingMode(SmoothingModeAntiAlias);
-				gfx.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
-				gfx.Clear(ToColor(kWinBg));
+				Gdiplus::Graphics gfx(mem);
+				gfx.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+				gfx.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+				gfx.Clear(Gdiplus::Color(255, 247, 248, 250));
 
-				// 설정 카드
-				GraphicsPath card;
-				RoundPath(card, 16.5f, 12.5f, 355.f, (float)rc.bottom - 25.f, 8.f);
-				SolidBrush white(Color(255, 255, 255, 255));
+				Gdiplus::GraphicsPath card;
+				RoundPath(card, 16.5f, 12.5f, 355.f, (float)rc.bottom - 25.f, 10.f);
+				Gdiplus::SolidBrush white(Gdiplus::Color(255, 255, 255, 255));
 				gfx.FillPath(&white, &card);
-				Pen border(Color(255, 229, 229, 234), 1.f);
+				Gdiplus::Pen border(Gdiplus::Color(255, 218, 220, 226), 1.f);
 				gfx.DrawPath(&border, &card);
 
-				FontFamily ff(L"Segoe UI");
-				FontFamily semi(L"Segoe UI Semibold");
-				Font secFont(semi.IsAvailable() ? &semi : &ff, 9.f,
-							 semi.IsAvailable() ? FontStyleRegular : FontStyleBold, UnitPoint);
-				Font txtFont(&ff, 9.f, FontStyleRegular, UnitPoint);
-				SolidBrush secBr(Color(255, 92, 92, 100));
-				SolidBrush txtBr(Color(255, 60, 60, 66));
-				auto sec = [&](const wchar_t* t, float y) { gfx.DrawString(t, -1, &secFont, PointF(32.f, y), &secBr); };
-				sec(T(L"프린터", L"Printer"), 24.f);
-				sec(T(L"부수", L"Copies"), 128.f);
-				sec(T(L"페이지 범위", L"Page range"), 194.f);
-				sec(T(L"방향", L"Orientation"), 298.f);
-				sec(T(L"배율", L"Scale"), 364.f);
-
-				StringFormat sfc;
-				sfc.SetAlignment(StringAlignmentCenter);
-				sfc.SetLineAlignment(StringAlignmentCenter);
-				gfx.DrawString(L"~", -1, &txtFont, RectF(122.f, 256.f, 26.f, 30.f), &sfc, &txtBr);
-				gfx.DrawString(L"×", -1, &txtFont, RectF(102.f, 462.f, 24.f, 30.f), &sfc, &txtBr);
+				Gdiplus::FontFamily ff(L"Segoe UI");
+				Gdiplus::Font secFont(&ff, 9.f, Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
+				Gdiplus::Font txtFont(&ff, 9.f, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+				Gdiplus::SolidBrush secBr(Gdiplus::Color(255, 60, 120, 210));
+				Gdiplus::SolidBrush txtBr(Gdiplus::Color(255, 45, 48, 55));
+				auto sec = [&](const wchar_t* t, float y) { gfx.DrawString(t, -1, &secFont, Gdiplus::PointF(32.f, y), &secBr); };
+				sec(T(L"\uD504\uB9B0\uD130", L"Printer"), 28.f);
+				sec(T(L"\uBD80\uC218", L"Copies"), 134.f);
+				sec(T(L"\uD398\uC774\uC9C0 \uBC94\uC704", L"Page range"), 198.f);
+				sec(T(L"\uBC29\uD5A5", L"Orientation"), 292.f);
+				sec(T(L"\uBC30\uC728", L"Scale"), 356.f);
+				gfx.DrawString(L"~", -1, &txtFont, Gdiplus::PointF(132.f, 253.f), &txtBr);
+				gfx.DrawString(L"x", -1, &txtFont, Gdiplus::PointF(248.f, 415.f), &txtBr);
 
 				if (s)
 				{
-					// 입력 상자 테두리: 둥근 테두리 + 포커스 시 아래쪽 강조선 (Windows 11 입력 상자)
-					for (HWND ed : { s->hEdCopies, s->hEdFrom, s->hEdTo, s->hEdCols, s->hEdRows })
-					{
-						if (!ed) continue;
-						const RECT fr = EditFrame(ed);
-						const bool en = IsWindowEnabled(ed) != FALSE;
-						const bool foc = GetFocus() == ed;
-						GraphicsPath ep;
-						RoundPath(ep, fr.left + 0.5f, fr.top + 0.5f, (float)(fr.right - fr.left) - 1.f,
-								  (float)(fr.bottom - fr.top) - 1.f, 5.f);
-						SolidBrush eb(en ? Color(255, 255, 255, 255) : ToColor(kEditOff));
-						gfx.FillPath(&eb, &ep);
-						Pen epen(en ? Color(255, 209, 209, 214) : Color(255, 229, 229, 233), 1.f);
-						gfx.DrawPath(&epen, &ep);
-						if (foc)
-						{
-							Pen ap(kAccent, 2.f);
-							gfx.DrawLine(&ap, fr.left + 4.f, fr.bottom - 1.5f, fr.right - 4.f, fr.bottom - 1.5f);
-						}
-					}
-
 					wchar_t buf[32];
 					int f, t; GetRange(f, t);
 					if (TwoUp() && s->previewPage + 1 <= t)   // 이 장의 두 페이지 번호
 						swprintf_s(buf, L"%d–%d / %d", s->previewPage + 1, s->previewPage + 2, s->pageCount);
 					else
 						swprintf_s(buf, L"%d / %d", s->previewPage + 1, s->pageCount);
+					Gdiplus::StringFormat sf;
+					sf.SetAlignment(Gdiplus::StringAlignmentCenter);
+					sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
 					gfx.DrawString(buf, -1, &txtFont,
-						RectF((float)NAV_LABEL_RC.left, (float)NAV_LABEL_RC.top,
-							  (float)(NAV_LABEL_RC.right - NAV_LABEL_RC.left),
-							  (float)(NAV_LABEL_RC.bottom - NAV_LABEL_RC.top)), &sfc, &txtBr);
+						Gdiplus::RectF((float)NAV_LABEL_RC.left, (float)NAV_LABEL_RC.top,
+									   (float)(NAV_LABEL_RC.right - NAV_LABEL_RC.left),
+									   (float)(NAV_LABEL_RC.bottom - NAV_LABEL_RC.top)), &sf, &txtBr);
 				}
 			}
 			BitBlt(hdc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
@@ -903,12 +708,11 @@ namespace
 			POINT pt; GetCursorPos(&pt);
 			HWND hw = WindowFromPoint(pt);
 			int id = 0;
-			if (hw && GetParent(hw) == h && hw != s->hPreview)
-			{
-				wchar_t cls[16] = {};
-				GetClassNameW(hw, cls, 16);
-				if (_wcsicmp(cls, L"Button") == 0) id = GetDlgCtrlID(hw);
-			}
+			if (hw == s->hPrint) id = IDOK;
+			else if (hw == s->hCancel) id = IDCANCEL;
+			else if (hw == s->hProps) id = ID_PROPS;
+			else if (hw == s->hPrev) id = ID_PREV;
+			else if (hw == s->hNext) id = ID_NEXT;
 			if (id != s->hotId)
 			{
 				int old = s->hotId; s->hotId = id;
@@ -921,30 +725,25 @@ namespace
 		{
 			if (!s) break;
 			int id = LOWORD(w), code = HIWORD(w);
-			if (IsEditId(id) && (code == EN_SETFOCUS || code == EN_KILLFOCUS))
-			{
-				RECT fr = EditFrame((HWND)l);
-				InvalidateRect(h, &fr, FALSE);
-				return 0;
-			}
 			if ((id == ID_ED_COLS || id == ID_ED_ROWS) && code == EN_CHANGE) { OnChanged(); return 0; }
 			if ((id == ID_ED_FROM || id == ID_ED_TO) && code == EN_CHANGE) { OnChanged(); return 0; }
+			if (id == ID_COMBO && code == CBN_SELCHANGE)
+			{
+				int i = (int)SendMessageW(s->hCombo, CB_GETCURSEL, 0, 0);
+				if (i >= 0 && i < (int)s->printers.size())
+				{
+					s->sel = i;
+					LoadDevMode(s->printers[i], s->devmode);
+					OnChanged();
+				}
+				return 0;
+			}
 			if (code != BN_CLICKED) break;
-			if (IsRadioId(id)) SelectRadio(id);
 			switch (id)
 			{
 			case IDOK:     DoOk(); return 0;
 			case IDCANCEL: s->done = true; return 0;
 			case ID_PROPS: ShowProps(); return 0;
-			case ID_COMBO: PickPrinter(); return 0;
-			case ID_COPY_DEC:
-			case ID_COPY_INC:
-			{
-				const int n = std::clamp(ReadInt(s->hEdCopies, 1) + (id == ID_COPY_INC ? 1 : -1), 1, 999);
-				wchar_t b[8]; swprintf_s(b, L"%d", n);
-				SetWindowTextW(s->hEdCopies, b);
-				return 0;
-			}
 			case ID_PREV:
 			case ID_NEXT:
 			{
@@ -962,14 +761,12 @@ namespace
 				EnableWindow(s->hEdFrom, Checked(s->hRadRng));
 				EnableWindow(s->hEdTo, Checked(s->hRadRng));
 				if (id == ID_RAD_CUR) s->previewPage = s->curPage;
-				InvalidateRect(h, nullptr, FALSE);   // 입력 상자 테두리 색
 				OnChanged();
 				return 0;
 			case ID_RAD_AUTO: case ID_RAD_PORT: case ID_RAD_LAND:
 			case ID_RAD_FIT:  case ID_RAD_ACT: case ID_RAD_POSTER: case ID_RAD_TWOUP:
 				EnableWindow(s->hEdCols, Checked(s->hRadPoster));
 				EnableWindow(s->hEdRows, Checked(s->hRadPoster));
-				InvalidateRect(h, nullptr, FALSE);
 				OnChanged();
 				return 0;
 			}
@@ -1053,7 +850,6 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 						 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
 						 DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 	s.brWhite = CreateSolidBrush(RGB(255, 255, 255));
-	s.brDisabled = CreateSolidBrush(kEditOff);
 	g = &s;
 
 	// 기본 프린터 선택
@@ -1090,66 +886,53 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 							   h, (HMENU)(INT_PTR)id, nullptr, nullptr);
 	};
 
-	// 입력 상자: 테두리 없이 만들고 부모가 둥근 테두리를 3px 바깥에 그린다 (fx..fh = 테두리 영역)
-	auto mkEdit = [&](const wchar_t* text, DWORD st, int fx, int fy, int fw, int fh, int id) -> HWND
-	{
-		return mk(L"EDIT", text, WS_TABSTOP | ES_NUMBER | ES_CENTER | ES_MULTILINE | st, 0,
-				  fx + 3, fy + 3, fw - 6, fh - 6, id);
-	};
-	auto mkBtn = [&](const wchar_t* text, DWORD st, int bx, int by, int bw, int bh, int id) -> HWND
-	{
-		return mk(L"BUTTON", text, BS_OWNERDRAW | st, 0, bx, by, bw, bh, id);
-	};
+	s.hCombo = mk(L"COMBOBOX", L"", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, 0, 32, 50, 324, 260, ID_COMBO);
+	for (const auto& n : s.printers) SendMessageW(s.hCombo, CB_ADDSTRING, 0, (LPARAM)n.c_str());
+	SendMessageW(s.hCombo, CB_SETCURSEL, s.sel, 0);
 
-	// 프린터: 누르면 목록 메뉴가 뜨는 선택 상자
-	s.hCombo = mkBtn(s.printers[s.sel].c_str(), WS_TABSTOP, 32, 46, 324, 34, ID_COMBO);
-	s.hProps = mkBtn(T(L"프린터 속성", L"Properties"), WS_TABSTOP, 32, 88, 140, 28, ID_PROPS);
+	s.hProps = mk(L"BUTTON", T(L"\uD504\uB9B0\uD130 \uC18D\uC131", L"Properties"), WS_TABSTOP | BS_OWNERDRAW, 0, 32, 86, 130, 30, ID_PROPS);
 
-	// 부수: [−] [ n ] [+]
-	s.hCopyDec  = mkBtn(L"", WS_GROUP | WS_TABSTOP, 32, 150, 32, 32, ID_COPY_DEC);
-	s.hEdCopies = mkEdit(L"1", 0, 68, 150, 60, 32, ID_COPIES);
-	s.hCopyInc  = mkBtn(L"", WS_TABSTOP, 132, 150, 32, 32, ID_COPY_INC);
+	s.hEdCopies = mk(L"EDIT", L"1", WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_CENTER | ES_MULTILINE, 0, 32, 156, 70, 26, ID_COPIES);
 	SendMessageW(s.hEdCopies, EM_LIMITTEXT, 3, 0);
 
-	// 페이지 범위: 세 칸 선택지 + 시작 ~ 끝
-	s.hRadAll = mkBtn(T(L"전체", L"All"), WS_GROUP | WS_TABSTOP, 32, 216, 105, 32, ID_RAD_ALL);
-	s.hRadCur = mkBtn(T(L"현재 페이지", L"Current"), 0, 141, 216, 105, 32, ID_RAD_CUR);
-	s.hRadRng = mkBtn(T(L"지정", L"Pages"), 0, 250, 216, 106, 32, ID_RAD_RNG);
-	s.hEdFrom = mkEdit(L"1", WS_GROUP, 32, 256, 90, 30, ID_ED_FROM);
+	s.hRadAll = mk(L"BUTTON", T(L"\uC804\uCCB4", L"All"), WS_GROUP | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 32, 220, 80, 22, ID_RAD_ALL);
+	s.hRadCur = mk(L"BUTTON", T(L"\uD604\uC7AC \uD398\uC774\uC9C0", L"Current"), BS_AUTORADIOBUTTON, 0, 116, 220, 120, 22, ID_RAD_CUR);
+	s.hRadRng = mk(L"BUTTON", T(L"\uC9C0\uC815", L"Pages"), BS_AUTORADIOBUTTON, 0, 240, 220, 100, 22, ID_RAD_RNG);
+	s.hEdFrom = mk(L"EDIT", L"1", WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_CENTER | ES_MULTILINE, 0, 56, 250, 70, 26, ID_ED_FROM);
 	wchar_t last[16]; swprintf_s(last, L"%d", pageCount);
-	s.hEdTo = mkEdit(last, 0, 148, 256, 90, 30, ID_ED_TO);
+	s.hEdTo = mk(L"EDIT", last, WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_CENTER | ES_MULTILINE, 0, 152, 250, 70, 26, ID_ED_TO);
 	SendMessageW(s.hEdFrom, EM_LIMITTEXT, 6, 0);
 	SendMessageW(s.hEdTo, EM_LIMITTEXT, 6, 0);
 	EnableWindow(s.hEdFrom, FALSE);
 	EnableWindow(s.hEdTo, FALSE);
 
-	// 방향
-	s.hRadAuto = mkBtn(T(L"자동", L"Auto"), WS_GROUP | WS_TABSTOP, 32, 320, 105, 32, ID_RAD_AUTO);
-	s.hRadPort = mkBtn(T(L"세로", L"Portrait"), 0, 141, 320, 105, 32, ID_RAD_PORT);
-	s.hRadLand = mkBtn(T(L"가로", L"Landscape"), 0, 250, 320, 106, 32, ID_RAD_LAND);
+	s.hRadAuto = mk(L"BUTTON", T(L"\uC790\uB3D9", L"Auto"), WS_GROUP | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 32, 314, 80, 22, ID_RAD_AUTO);
+	s.hRadPort = mk(L"BUTTON", T(L"\uC138\uB85C", L"Portrait"), BS_AUTORADIOBUTTON, 0, 116, 314, 80, 22, ID_RAD_PORT);
+	s.hRadLand = mk(L"BUTTON", T(L"\uAC00\uB85C", L"Landscape"), BS_AUTORADIOBUTTON, 0, 200, 314, 90, 22, ID_RAD_LAND);
 
-	// 배율: 2×2 선택지 + 포스터 열 × 행
-	s.hRadFit    = mkBtn(T(L"용지에 맞춤", L"Fit to page"), WS_GROUP | WS_TABSTOP, 32, 386, 160, 32, ID_RAD_FIT);
-	s.hRadAct    = mkBtn(T(L"실제 크기", L"Actual size"), 0, 196, 386, 160, 32, ID_RAD_ACT);
-	s.hRadPoster = mkBtn(T(L"포스터 분할", L"Poster tiles"), 0, 32, 422, 160, 32, ID_RAD_POSTER);
-	s.hRadTwoUp  = mkBtn(T(L"2쪽 모아찍기", L"2 pages per sheet"), 0, 196, 422, 160, 32, ID_RAD_TWOUP);
-	s.hEdCols = mkEdit(L"2", WS_GROUP, 32, 462, 70, 30, ID_ED_COLS);
-	s.hEdRows = mkEdit(L"2", 0, 126, 462, 70, 30, ID_ED_ROWS);
+	s.hRadFit = mk(L"BUTTON", T(L"\uC6A9\uC9C0\uC5D0 \uB9DE\uCDA4", L"Fit to page"), WS_GROUP | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 32, 378, 140, 22, ID_RAD_FIT);
+	s.hRadAct = mk(L"BUTTON", T(L"\uC2E4\uC81C \uD06C\uAE30", L"Actual size"), BS_AUTORADIOBUTTON, 0, 176, 378, 120, 22, ID_RAD_ACT);
+
+	s.hRadPoster = mk(L"BUTTON", T(L"\uD3EC\uC2A4\uD130 \uBD84\uD560", L"Poster tiles"), BS_AUTORADIOBUTTON, 0, 32, 412, 130, 22, ID_RAD_POSTER);
+	s.hEdCols = mk(L"EDIT", L"2", WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_CENTER | ES_MULTILINE, 0, 176, 410, 56, 26, ID_ED_COLS);
+	s.hEdRows = mk(L"EDIT", L"2", WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_CENTER | ES_MULTILINE, 0, 266, 410, 56, 26, ID_ED_ROWS);
 	SendMessageW(s.hEdCols, EM_LIMITTEXT, 2, 0);
 	SendMessageW(s.hEdRows, EM_LIMITTEXT, 2, 0);
 	EnableWindow(s.hEdCols, FALSE);
 	EnableWindow(s.hEdRows, FALSE);
 
-	SetCheck(s.hRadAll, true);
-	SetCheck(s.hRadAuto, true);
-	SetCheck(s.hRadFit, true);
+	s.hRadTwoUp = mk(L"BUTTON", T(L"2쪽 모아찍기", L"2 pages per sheet"), BS_AUTORADIOBUTTON, 0, 32, 446, 170, 22, ID_RAD_TWOUP);
 
-	s.hCancel = mkBtn(T(L"취소", L"Cancel"), WS_GROUP | WS_TABSTOP, 146, 530, 100, 36, IDCANCEL);
-	s.hPrint  = mkBtn(T(L"인쇄", L"Print"), WS_TABSTOP, 256, 530, 100, 36, IDOK);
+	SendMessageW(s.hRadAll, BM_SETCHECK, BST_CHECKED, 0);
+	SendMessageW(s.hRadAuto, BM_SETCHECK, BST_CHECKED, 0);
+	SendMessageW(s.hRadFit, BM_SETCHECK, BST_CHECKED, 0);
 
-	s.hPreview = mk(PV_CLASS, L"", 0, 0, 388, 12, 496, 506, 0);
-	s.hPrev = mkBtn(L"", WS_TABSTOP, 546, 530, 36, 32, ID_PREV);
-	s.hNext = mkBtn(L"", WS_TABSTOP, 694, 530, 36, 32, ID_NEXT);
+	s.hCancel = mk(L"BUTTON", T(L"\uCDE8\uC18C", L"Cancel"), WS_TABSTOP | BS_OWNERDRAW, 0, 146, 488, 100, 38, IDCANCEL);
+	s.hPrint  = mk(L"BUTTON", T(L"\uC778\uC1C4", L"Print"), WS_TABSTOP | BS_OWNERDRAW, 0, 256, 488, 100, 38, IDOK);
+
+	s.hPreview = mk(PV_CLASS, L"", 0, 0, 388, 12, 500, 476, 0);
+	s.hPrev = mk(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, 0, 638 - 92, 500, 36, 32, ID_PREV);
+	s.hNext = mk(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, 0, 638 + 56, 500, 36, 32, ID_NEXT);
 
 	EnumChildWindows(h, SetFontProc, (LPARAM)s.font);
 
@@ -1182,16 +965,6 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	MSG msg;
 	while (!s.done && GetMessageW(&msg, nullptr, 0, 0) > 0)
 	{
-		// 포커스 링은 키보드로 옮겨 다닐 때만 보인다 (마우스로 누르면 숨김)
-		if (msg.message == WM_KEYDOWN && (msg.wParam == VK_TAB || (msg.wParam >= VK_LEFT && msg.wParam <= VK_DOWN)))
-		{
-			if (!s.kbdFocus) { s.kbdFocus = true; if (HWND f = GetFocus()) InvalidateRect(f, nullptr, FALSE); }
-		}
-		else if (msg.message == WM_LBUTTONDOWN && s.kbdFocus)
-		{
-			s.kbdFocus = false;
-			if (HWND f = GetFocus()) InvalidateRect(f, nullptr, FALSE);
-		}
 		if (!IsDialogMessageW(h, &msg))
 		{
 			TranslateMessage(&msg);
@@ -1208,7 +981,6 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	FreeCache();
 	DeleteObject(s.font);
 	DeleteObject(s.brWhite);
-	DeleteObject(s.brDisabled);
 	Gdiplus::GdiplusShutdown(gdipToken);
 	g = nullptr;
 	return s.ok;
