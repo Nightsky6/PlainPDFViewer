@@ -738,6 +738,9 @@ namespace
 				}
 				return 0;
 			}
+			// 소유자 그리기 버튼은 빠르게 두 번 누르면 두 번째를 BN_DOUBLECLICKED로 보낸다.
+			// 미리보기 넘김은 연달아 누르는 버튼이므로 두 번째 클릭도 한 번 더 넘긴 것으로 처리
+			if (code == BN_DOUBLECLICKED && (id == ID_PREV || id == ID_NEXT)) code = BN_CLICKED;
 			if (code != BN_CLICKED) break;
 			switch (id)
 			{
