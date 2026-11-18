@@ -7459,8 +7459,12 @@ static void SaveDocument(HWND hWnd, bool saveAs)
 
 // ─── 텍스트 선택 하이라이트 그리기 ───────────────────────────────────────────
 
+// 선택 드래그용 프레임 캐시를 만들 때만 true (선택 하이라이트를 뺀 화면을 저장)
+static bool g_skipSelectionDraw = false;
+
 static void DrawTextSelection(HDC hdc, const RECT& clientRect)
 {
+    if (g_skipSelectionDraw) return;
     if (!g_pdfDoc) return;
     if (!g_hasSelection && !g_isSelecting) return;
     if (g_selCharStart < 0 || g_selCharEnd < 0) return;
@@ -8789,78 +8793,99 @@ static void DrawSidebar(HDC hdc, const RECT& clientRect)
 
 // ─── 렌더링 ───────────────────────────────────────────────────────────────────
 
+// 스포트라이트 오버레이 그리기 모드 (드래그용 프레임 캐시를 만들 때만 바뀜)
+//   0: 평소 (사각형 밖만 어둡게)  1: 오버레이 생략  2: 사각형 없이 전체를 어둡게
+static int g_spotRenderMode = 0;
+
+// 드래그 중 캐시: 오버레이 없는 프레임 / 전체가 어두운 프레임
+// 마우스를 움직일 때마다 전체 화면을 다시 그리지 않고 BitBlt 두 번으로 합성한다
+static HDC     g_spotClearDC  = nullptr;
+static HBITMAP g_spotClearBmp = nullptr, g_spotClearOld = nullptr;
+static HDC     g_spotDimDC    = nullptr;
+static HBITMAP g_spotDimBmp   = nullptr, g_spotDimOld = nullptr;
+static int     g_spotCacheW   = 0, g_spotCacheH = 0;
+static bool    g_spotCacheValid = false;
+static RECT    g_spotPrevRect   = {};   // 직전에 그린 드래그 사각형 (부분 무효화용)
+
+static void FreeSpotlightCache()
+{
+    if (g_spotClearDC) { SelectObject(g_spotClearDC, g_spotClearOld); DeleteDC(g_spotClearDC); DeleteObject(g_spotClearBmp); }
+    if (g_spotDimDC)   { SelectObject(g_spotDimDC, g_spotDimOld);     DeleteDC(g_spotDimDC);   DeleteObject(g_spotDimBmp); }
+    g_spotClearDC = g_spotDimDC = nullptr;
+    g_spotClearBmp = g_spotClearOld = g_spotDimBmp = g_spotDimOld = nullptr;
+    g_spotCacheW = g_spotCacheH = 0;
+    g_spotCacheValid = false;
+}
+
+static RECT SpotlightArea(const RECT& clientRect)
+{
+    RECT a = clientRect;
+    a.top    = TOOLBAR_HEIGHT;
+    a.bottom = clientRect.bottom - STATUSBAR_HEIGHT;
+    return a;
+}
+
+// 사각형 영역을 검정 반투명(alpha 160)으로 어둡게 — 1x1 검정 비트맵을 늘려 AlphaBlend
+// (GDI+ 반투명 채우기보다 훨씬 빠름)
+static void DimRect(HDC hdc, int x1, int y1, int x2, int y2)
+{
+    if (x2 <= x1 || y2 <= y1) return;
+    static HDC s_blackDC = nullptr;
+    if (!s_blackDC)
+    {
+        s_blackDC = CreateCompatibleDC(nullptr);
+        HDC screen = GetDC(nullptr);
+        HBITMAP bmp = CreateCompatibleBitmap(screen, 1, 1);   // 프로세스 수명 동안 유지
+        ReleaseDC(nullptr, screen);
+        SelectObject(s_blackDC, bmp);
+        SetPixel(s_blackDC, 0, 0, RGB(0, 0, 0));
+    }
+    BLENDFUNCTION bf = { AC_SRC_OVER, 0, 160, 0 };
+    AlphaBlend(hdc, x1, y1, x2 - x1, y2 - y1, s_blackDC, 0, 0, 1, 1, bf);
+}
+
+static void DrawSpotlightBorder(HDC hdc, LONG left, LONG top, LONG right, LONG bottom)
+{
+    if (right <= left || bottom <= top) return;
+    Gdiplus::Graphics gfx(hdc);
+    Gdiplus::Pen borderPen(Gdiplus::Color(220, 255, 255, 255), 2.0f);
+    gfx.DrawRectangle(&borderPen, (INT)left, (INT)top, (INT)(right - left), (INT)(bottom - top));
+}
+
 static void DrawSpotlightOverlay(HDC hdc, const RECT& clientRect)
 {
     if (!(g_spotlightMode && (g_hasSpotlight || g_isDrawingSpotlight))) return;
+    if (g_spotRenderMode == 1) return;
 
-    RECT cr_sp = clientRect;
-    cr_sp.top    = TOOLBAR_HEIGHT;
-    cr_sp.bottom = clientRect.bottom - STATUSBAR_HEIGHT;
-
-    Gdiplus::Graphics gfx(hdc);
-    RECT& sr = g_spotlightRect;
-
-    // 밝은 사각형을 제외한 4개 영역을 어둡게
-    auto fillDim = [&](int x1, int y1, int x2, int y2)
+    const RECT cr_sp = SpotlightArea(clientRect);
+    if (g_spotRenderMode == 2)
     {
-        if (x2 <= x1 || y2 <= y1) return;
-        Gdiplus::SolidBrush dimBrush(Gdiplus::Color(160, 0, 0, 0));
-        gfx.FillRectangle(&dimBrush, x1, y1, x2 - x1, y2 - y1);
-    };
+        DimRect(hdc, cr_sp.left, cr_sp.top, cr_sp.right, cr_sp.bottom);
+        return;
+    }
 
+    const RECT& sr = g_spotlightRect;
     LONG left   = std::max(sr.left,   (LONG)cr_sp.left);
     LONG top    = std::max(sr.top,    (LONG)cr_sp.top);
     LONG right  = std::min(sr.right,  (LONG)cr_sp.right);
     LONG bottom = std::min(sr.bottom, (LONG)cr_sp.bottom);
+    if (right < left)  right = left;
+    if (bottom < top)  bottom = top;
 
-    // 위 / 아래 / 왼쪽 / 오른쪽
-    fillDim(cr_sp.left, cr_sp.top,  cr_sp.right, top);
-    fillDim(cr_sp.left, bottom,     cr_sp.right, cr_sp.bottom);
-    fillDim(cr_sp.left, top,        left,        bottom);
-    fillDim(right,      top,        cr_sp.right, bottom);
+    // 밝은 사각형을 제외한 4개 영역을 어둡게 (위 / 아래 / 왼쪽 / 오른쪽)
+    DimRect(hdc, cr_sp.left, cr_sp.top, cr_sp.right, top);
+    DimRect(hdc, cr_sp.left, bottom,    cr_sp.right, cr_sp.bottom);
+    DimRect(hdc, cr_sp.left, top,       left,        bottom);
+    DimRect(hdc, right,      top,       cr_sp.right, bottom);
 
-    // 밝은 영역 테두리
-    if (right > left && bottom > top)
-    {
-        Gdiplus::Pen borderPen(Gdiplus::Color(220, 255, 255, 255), 2.0f);
-        gfx.DrawRectangle(&borderPen, (INT)left, (INT)top, (INT)(right - left), (INT)(bottom - top));
-    }
+    DrawSpotlightBorder(hdc, left, top, right, bottom);
 }
 
-static void RenderPage(HWND hWnd, HDC hdc, const RECT& clientRect)
+static void RenderPageImpl(HWND hWnd, HDC hdc, const RECT& clientRect)
 {
     const RECT viewport = GetViewportRect(clientRect);
     const int  vpW = viewport.right - viewport.left;
     const int  vpH = viewport.bottom - viewport.top;
-
-    // ─── 텍스트 선택 드래그 중 고속 경로 ───────────────────────────────────────
-    // 페이지+오버레이 베이스 캐시가 유효하면 BitBlt 1회 + 선택 오버레이만 추가
-    if (g_isSelecting && !g_pageBaseDirty
-        && g_pageBaseDC
-        && vpW == g_pageBaseW && vpH == g_pageBaseH)
-    {
-        // 베이스(페이지+고정오버레이)를 백버퍼 전체에 복사
-        BitBlt(hdc, 0, 0, clientRect.right, clientRect.bottom,
-               g_pageBaseDC, 0, 0, SRCCOPY);
-        // 변경된 선택 오버레이만 다시 그림
-        DrawTextSelection(hdc, clientRect);
-        return;
-    }
-
-    if (g_isDrawingSpotlight && !g_pageBaseDirty
-        && g_pageBaseDC
-        && vpW == g_pageBaseW && vpH == g_pageBaseH)
-    {
-        BitBlt(hdc, 0, 0, clientRect.right, clientRect.bottom,
-               g_pageBaseDC, 0, 0, SRCCOPY);
-        DrawSpotlightOverlay(hdc, clientRect);
-        if (!g_fullscreen)
-        {
-            DrawToolbar(hdc, clientRect);
-            DrawStatusBar(hdc, clientRect);
-        }
-        return;
-    }
 
     // ─── 슬라이드쇼 전용: 현재 페이지만 뷰포트 전체에 렌더링 ───
     if (g_slideshowActive && g_pdfDoc && g_pageCount > 0 && g_pdfPage)
@@ -9399,6 +9424,121 @@ static void RenderPage(HWND hWnd, HDC hdc, const RECT& clientRect)
     GroupPanel::Draw(hdc, clientRect);
 }
 
+// 스포트라이트 드래그 중에는 프레임 두 장(오버레이 없음 / 전체 어둡게)을 한 번만 만들어 두고
+// 이후 마우스 이동마다 "어두운 프레임 + 사각형 안만 원래 프레임"을 BitBlt로 합성한다.
+// 스크롤·확대 등으로 페이지가 바뀌면(g_pageBaseDirty) 캐시를 다시 만든다.
+// 텍스트 선택 드래그 중 캐시: 선택 하이라이트만 뺀 완성 화면
+static HDC     g_selFrameDC  = nullptr;
+static HBITMAP g_selFrameBmp = nullptr, g_selFrameOld = nullptr;
+static int     g_selFrameW = 0, g_selFrameH = 0;
+static int     g_selFrameScrollX = 0, g_selFrameScrollY = 0;
+static float   g_selFrameZoom = 0.0f;
+static bool    g_selFrameValid = false;
+
+static void FreeSelectionFrameCache()
+{
+    if (g_selFrameDC) { SelectObject(g_selFrameDC, g_selFrameOld); DeleteDC(g_selFrameDC); DeleteObject(g_selFrameBmp); }
+    g_selFrameDC = nullptr; g_selFrameBmp = g_selFrameOld = nullptr;
+    g_selFrameW = g_selFrameH = 0;
+    g_selFrameValid = false;
+}
+
+// 텍스트 선택 드래그 중에는 선택 하이라이트를 뺀 화면을 한 번만 만들어 두고,
+// 마우스 이동마다 그 화면을 BitBlt한 뒤 선택 하이라이트만 뷰포트 안에 다시 그린다.
+// 선택 위에 겹치는 것은 반투명 찾기 강조뿐이라 그리는 순서가 바뀌어도 모양은 같다.
+// 다른 오버레이가 뷰포트를 덮는 동안(스포트라이트, 패널 애니메이션)에는 쓰지 않는다.
+static bool RenderSelectionDragFast(HWND hWnd, HDC hdc, const RECT& clientRect)
+{
+    const bool usable = g_isSelecting && g_selCaptured && g_pdfDoc && !g_slideshowActive
+        && !(g_spotlightMode && (g_hasSpotlight || g_isDrawingSpotlight))
+        && !s_sbAnimating && !GroupPanel::IsAnimating()
+        && clientRect.right > 0 && clientRect.bottom > 0;
+    if (!usable)
+    {
+        if (g_selFrameDC) FreeSelectionFrameCache();
+        return false;
+    }
+
+    const int w = clientRect.right, h = clientRect.bottom;
+    if (!g_selFrameDC || w != g_selFrameW || h != g_selFrameH)
+    {
+        FreeSelectionFrameCache();
+        g_selFrameDC  = CreateCompatibleDC(hdc);
+        g_selFrameBmp = CreateCompatibleBitmap(hdc, w, h);
+        g_selFrameOld = static_cast<HBITMAP>(SelectObject(g_selFrameDC, g_selFrameBmp));
+        g_selFrameW = w; g_selFrameH = h;
+    }
+    // 스크롤·확대·페이지 내용이 바뀌었으면 다시 만든다
+    if (!g_selFrameValid || g_pageBaseDirty
+        || g_selFrameScrollX != g_scrollX || g_selFrameScrollY != g_scrollY || g_selFrameZoom != g_zoom)
+    {
+        g_skipSelectionDraw = true;
+        RenderPageImpl(hWnd, hdc, clientRect);
+        g_skipSelectionDraw = false;
+        BitBlt(g_selFrameDC, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+        g_selFrameScrollX = g_scrollX; g_selFrameScrollY = g_scrollY; g_selFrameZoom = g_zoom;
+        g_selFrameValid = true;
+    }
+    else
+        BitBlt(hdc, 0, 0, w, h, g_selFrameDC, 0, 0, SRCCOPY);
+
+    const RECT vp = GetViewportRect(clientRect);
+    const int sv = SaveDC(hdc);
+    IntersectClipRect(hdc, vp.left, vp.top, vp.right, vp.bottom);
+    DrawTextSelection(hdc, clientRect);
+    RestoreDC(hdc, sv);
+    return true;
+}
+
+static void RenderPage(HWND hWnd, HDC hdc, const RECT& clientRect)
+{
+    if (RenderSelectionDragFast(hWnd, hdc, clientRect)) return;
+
+    const bool useCache = g_isDrawingSpotlight && g_spotlightMode && g_pdfDoc && !g_slideshowActive
+                          && clientRect.right > 0 && clientRect.bottom > 0;
+    if (!useCache)
+    {
+        if (g_spotClearDC) FreeSpotlightCache();
+        RenderPageImpl(hWnd, hdc, clientRect);
+        return;
+    }
+
+    const int w = clientRect.right, h = clientRect.bottom;
+    if (!g_spotCacheValid || g_pageBaseDirty || w != g_spotCacheW || h != g_spotCacheH)
+    {
+        if (w != g_spotCacheW || h != g_spotCacheH || !g_spotClearDC)
+        {
+            FreeSpotlightCache();
+            g_spotClearDC  = CreateCompatibleDC(hdc);
+            g_spotClearBmp = CreateCompatibleBitmap(hdc, w, h);
+            g_spotClearOld = static_cast<HBITMAP>(SelectObject(g_spotClearDC, g_spotClearBmp));
+            g_spotDimDC    = CreateCompatibleDC(hdc);
+            g_spotDimBmp   = CreateCompatibleBitmap(hdc, w, h);
+            g_spotDimOld   = static_cast<HBITMAP>(SelectObject(g_spotDimDC, g_spotDimBmp));
+            g_spotCacheW = w; g_spotCacheH = h;
+        }
+        g_spotRenderMode = 1;
+        RenderPageImpl(hWnd, hdc, clientRect);
+        BitBlt(g_spotClearDC, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+        g_spotRenderMode = 2;
+        RenderPageImpl(hWnd, hdc, clientRect);
+        BitBlt(g_spotDimDC, 0, 0, w, h, hdc, 0, 0, SRCCOPY);
+        g_spotRenderMode = 0;
+        g_spotCacheValid = true;
+    }
+
+    // 합성: 어두운 프레임 전체 + 사각형 안은 원래 프레임 + 테두리
+    BitBlt(hdc, 0, 0, w, h, g_spotDimDC, 0, 0, SRCCOPY);
+    const RECT a = SpotlightArea(clientRect);
+    RECT bright = {};
+    if (IntersectRect(&bright, &g_spotlightRect, &a))
+    {
+        BitBlt(hdc, bright.left, bright.top, bright.right - bright.left, bright.bottom - bright.top,
+               g_spotClearDC, bright.left, bright.top, SRCCOPY);
+        DrawSpotlightBorder(hdc, bright.left, bright.top, bright.right, bright.bottom);
+    }
+}
+
 // ─── UI 헬퍼 ──────────────────────────────────────────────────────────────────
 
 void UpdateTitle(HWND hWnd)
@@ -9414,34 +9554,29 @@ void UpdateTitle(HWND hWnd)
     SetWindowTextW(hWnd, title);
 }
 
-// 레이저 포인터를 지정한 DC에 직접 그림 (백버퍼와 분리된 화면 DC용)
-static void DrawLaserOverlay(HDC hdc, int cx, int cy)
+// 레이저 스프라이트 (28x28, premultiplied 32bpp) — 처음 한 번만 만들고 계속 재사용
+static const int LASER_SZ   = 28;   // 짝수
+static const int LASER_HALF = LASER_SZ / 2;
+static HDC GetLaserSpriteDC()
 {
-    // 오프스크린 32비트 비트맵에 레이저를 그린 뒤 AlphaBlend로 한 번에 합성
-    // → WM_PAINT 더블버퍼와 충돌 없이 깜박임/번짐 없는 렌더링
-    const int SZ = 28; // 오버레이 크기 (짝수)
-    const int HALF = SZ / 2;
+    static HDC s_dc = nullptr;
+    if (s_dc) return s_dc;
 
-    // 32bpp DIB 생성
     BITMAPINFO bmi = {};
     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth       = SZ;
-    bmi.bmiHeader.biHeight      = -SZ; // top-down
+    bmi.bmiHeader.biWidth       = LASER_SZ;
+    bmi.bmiHeader.biHeight      = -LASER_SZ; // top-down
     bmi.bmiHeader.biPlanes      = 1;
     bmi.bmiHeader.biBitCount    = 32;
     bmi.bmiHeader.biCompression = BI_RGB;
 
     void* pBits = nullptr;
-    HBITMAP hBmp = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
-    if (!hBmp) return;
-
-    HDC offDC = CreateCompatibleDC(hdc);
-    HBITMAP hOld = (HBITMAP)SelectObject(offDC, hBmp);
-
-    // 배경을 완전 투명(0)으로 초기화
-    memset(pBits, 0, SZ * SZ * 4);
+    HBITMAP hBmp = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+    if (!hBmp || !pBits) return nullptr;
+    memset(pBits, 0, LASER_SZ * LASER_SZ * 4);   // 완전 투명
 
     {
+        const int SZ = LASER_SZ, HALF = LASER_HALF;
         Gdiplus::Bitmap bmpObj(SZ, SZ, SZ * 4, PixelFormat32bppARGB, (BYTE*)pBits);
         Gdiplus::Graphics gfx(&bmpObj);
         gfx.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -9450,36 +9585,70 @@ static void DrawLaserOverlay(HDC hdc, int cx, int cy)
         // 외곽 후광 (부드러운 붉은 원)
         Gdiplus::SolidBrush glowBrush(Gdiplus::Color(70, 255, 0, 0));
         gfx.FillEllipse(&glowBrush, 2, 2, SZ - 4, SZ - 4);
-
         // 중간 글로우
         Gdiplus::SolidBrush midBrush(Gdiplus::Color(130, 255, 20, 20));
         gfx.FillEllipse(&midBrush, HALF - 6, HALF - 6, 12, 12);
-
         // 중심 점
         Gdiplus::SolidBrush dotBrush(Gdiplus::Color(240, 255, 40, 40));
         gfx.FillEllipse(&dotBrush, HALF - 4, HALF - 4, 8, 8);
-
         // 흰 하이라이트 (입체감)
         Gdiplus::SolidBrush hilightBrush(Gdiplus::Color(180, 255, 210, 210));
         gfx.FillEllipse(&hilightBrush, HALF - 2, HALF - 3, 4, 3);
     }
 
-    // 32비트 DIB → 실제로 그려진 픽셀의 알파 채널을 premultiplied 로 보정
-    BYTE* p = (BYTE*)pBits;
-    for (int i = 0; i < SZ * SZ; i++, p += 4)
+    // AlphaBlend(AC_SRC_ALPHA)용 premultiplied 알파로 보정
+    BYTE* px = (BYTE*)pBits;
+    for (int i = 0; i < LASER_SZ * LASER_SZ; i++, px += 4)
     {
-        BYTE a = p[3];
-        p[0] = (BYTE)(p[0] * a / 255);
-        p[1] = (BYTE)(p[1] * a / 255);
-        p[2] = (BYTE)(p[2] * a / 255);
+        BYTE a = px[3];
+        px[0] = (BYTE)(px[0] * a / 255);
+        px[1] = (BYTE)(px[1] * a / 255);
+        px[2] = (BYTE)(px[2] * a / 255);
     }
 
-    BLENDFUNCTION bf = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-    AlphaBlend(hdc, cx - HALF, cy - HALF, SZ, SZ, offDC, 0, 0, SZ, SZ, bf);
+    s_dc = CreateCompatibleDC(nullptr);
+    SelectObject(s_dc, hBmp);   // 프로세스 수명 동안 유지
+    return s_dc;
+}
 
-    SelectObject(offDC, hOld);
-    DeleteDC(offDC);
-    DeleteObject(hBmp);
+// 레이저 포인터를 지정한 DC에 직접 그림 (백버퍼와 분리된 화면 DC용)
+static void DrawLaserOverlay(HDC hdc, int cx, int cy)
+{
+    HDC sprite = GetLaserSpriteDC();
+    if (!sprite) return;
+    BLENDFUNCTION bf = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    AlphaBlend(hdc, cx - LASER_HALF, cy - LASER_HALF, LASER_SZ, LASER_SZ, sprite, 0, 0, LASER_SZ, LASER_SZ, bf);
+}
+
+// 레이저 이동: WM_PAINT(전체 화면 재렌더)를 거치지 않고 화면에 바로 그린다.
+// 백버퍼에는 레이저가 없으므로 이전 자리는 백버퍼에서 복사해 지우고 새 자리에 스프라이트를 얹는다.
+// 다른 이유로 다시 그릴 영역이 이미 쌓여 있으면 백버퍼가 최신이 아닐 수 있어 예전 방식(무효화)으로 처리.
+static void MoveLaser(HWND hWnd, POINT oldPos, POINT newPos)
+{
+    RECT oldRc = { oldPos.x - LASER_HALF, oldPos.y - LASER_HALF, oldPos.x + LASER_HALF, oldPos.y + LASER_HALF };
+    RECT newRc = { newPos.x - LASER_HALF, newPos.y - LASER_HALF, newPos.x + LASER_HALF, newPos.y + LASER_HALF };
+    const bool hasOld = oldPos.x >= 0;
+
+    RECT cr; GetClientRect(hWnd, &cr);
+    const bool direct = g_backDC && g_backW == cr.right && g_backH == cr.bottom
+                        && !g_isLoading && !GetUpdateRect(hWnd, nullptr, FALSE);
+    if (!direct)
+    {
+        if (hasOld) InvalidateRect(hWnd, &oldRc, FALSE);
+        InvalidateRect(hWnd, &newRc, FALSE);
+        return;
+    }
+
+    HDC hdc = GetDCEx(hWnd, nullptr, DCX_CACHE | DCX_CLIPCHILDREN);
+    if (!hdc) return;
+    TextEdit::ExcludeEditorFromPaint(hWnd, hdc);   // WM_PAINT와 같이 편집 입력창 위는 건드리지 않음
+    if (hasOld)
+        BitBlt(hdc, oldRc.left, oldRc.top, LASER_SZ, LASER_SZ, g_backDC, oldRc.left, oldRc.top, SRCCOPY);
+    BitBlt(hdc, newRc.left, newRc.top, LASER_SZ, LASER_SZ, g_backDC, newRc.left, newRc.top, SRCCOPY);
+    // 툴바 위로는 그리지 않음 (WM_PAINT 경로와 같은 조건)
+    IntersectClipRect(hdc, 0, TOOLBAR_HEIGHT, cr.right, cr.bottom);
+    DrawLaserOverlay(hdc, newPos.x, newPos.y);
+    ReleaseDC(hWnd, hdc);
 }
 
 void UpdateScrollBars(HWND hWnd)
@@ -11473,7 +11642,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             g_spotlightRect.top    = std::min((LONG)g_spotlightStart.y, (LONG)y);
             g_spotlightRect.right  = std::max((LONG)g_spotlightStart.x, (LONG)x);
             g_spotlightRect.bottom = std::max((LONG)g_spotlightStart.y, (LONG)y);
-            InvalidateRect(hWnd, nullptr, FALSE);
+            {
+                // 바뀌는 곳은 이전 사각형과 새 사각형(테두리 포함)뿐
+                RECT dirty = {};
+                UnionRect(&dirty, &g_spotPrevRect, &g_spotlightRect);
+                InflateRect(&dirty, 3, 3);
+                g_spotPrevRect = g_spotlightRect;
+                InvalidateRect(hWnd, &dirty, FALSE);
+            }
             break;
         }
         if (g_isDraggingNote && g_draggingNoteIdx >= 0)
@@ -11956,17 +12132,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             POINT newPos = { x, y };
             if (newPos.x != g_laserPos.x || newPos.y != g_laserPos.y)
             {
-                // 이전 위치 무효화 (지우기)
-                if (g_laserPos.x >= 0)
-                {
-                    RECT oldRc = { g_laserPos.x - 14, g_laserPos.y - 14,
-                                   g_laserPos.x + 14, g_laserPos.y + 14 };
-                    InvalidateRect(hWnd, &oldRc, FALSE);
-                }
+                const POINT oldPos = g_laserPos;
                 g_laserPos = newPos;
-                // 새 위치 무효화 (그리기)
-                RECT newRc = { x - 14, y - 14, x + 14, y + 14 };
-                InvalidateRect(hWnd, &newRc, FALSE);
+                MoveLaser(hWnd, oldPos, newPos);
             }
         }
 
@@ -12981,7 +13149,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             g_isDrawingSpotlight = true;
             g_spotlightStart = { x, y };
             g_spotlightRect  = { x, y, x, y };
+            g_spotPrevRect   = g_spotlightRect;
             SetCapture(hWnd);
+            InvalidateRect(hWnd, nullptr, FALSE);   // 첫 프레임은 화면 전체가 어두워져야 함
             break;
         }
 
