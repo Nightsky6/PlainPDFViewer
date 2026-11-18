@@ -8,16 +8,18 @@
 
 // ────────────────────────────────────────────────────────────────────────────
 // 패널 색상 (툴바 색상 계열)
-#define FP_BG         RGB(245, 245, 245)
-#define FP_BORDER     RGB(200, 200, 204)
+#define FP_BG         RGB(255, 255, 255)
+#define FP_BORDER     RGB(214, 214, 220)
 #define FP_EDIT_BG    RGB(255, 255, 255)
-#define FP_EDIT_FG    RGB(30,  30,  30)
-#define FP_LABEL_FG   RGB(80,  80,  90)
-#define FP_CHK_FG     RGB(50,  50,  55)
+#define FP_EDIT_FG    RGB(28,  28,  32)
+#define FP_EDIT_LINE  RGB(209, 209, 214)   // 검색 상자 테두리
+#define FP_ACCENT     RGB(0,   95,  184)   // 검색 상자 포커스 테두리
+#define FP_LABEL_FG   RGB(96,  96,  104)
+#define FP_CHK_FG     RGB(50,  50,  56)
 #define FP_BTN_NORMAL RGB(230, 230, 232)
-#define FP_BTN_HOVER  RGB(210, 210, 215)
-#define FP_BTN_PRESS  RGB(190, 190, 196)
-#define FP_SEP        RGB(200, 200, 204)
+#define FP_BTN_HOVER  RGB(236, 236, 240)
+#define FP_BTN_PRESS  RGB(224, 224, 230)
+#define FP_SEP        RGB(232, 232, 236)
 
 // 패널 크기
 static const int FINDPANEL_W      = 316;
@@ -528,6 +530,12 @@ static LRESULT CALLBACK FindPanelProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             g_findResultIdx = 0; g_findResultTotal = 0; g_findText[0] = 0;
             return 0;
         }
+        if ((HWND)lParam == g_hFindEdit && (HIWORD(wParam) == EN_SETFOCUS || HIWORD(wParam) == EN_KILLFOCUS))
+        {
+            RECT er = { FP_PAD, FP_ROW1_Y, FP_PAD + FP_EDIT_W, FP_ROW1_Y + FP_BTN_H };
+            InvalidateRect(hWnd, &er, FALSE);
+            return 0;
+        }
         SendMessageW(hMain, WM_COMMAND, wParam, lParam);
         return 0;
     }
@@ -561,16 +569,15 @@ static LRESULT CALLBACK FindPanelProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         RECT rc; GetClientRect(di->hwndItem, &rc);
         bool hovered = PtInRect(&rc, cur) != 0;
 
+        FillRect(di->hDC, &rc, g_hFindPanelBrush);
         if (pressed || hovered)
         {
-            COLORREF bgClr = pressed ? FP_BTN_PRESS : FP_BTN_HOVER;
-            HBRUSH hBr = CreateSolidBrush(bgClr);
-            FillRect(di->hDC, &rc, hBr);
+            HBRUSH hBr = CreateSolidBrush(pressed ? FP_BTN_PRESS : FP_BTN_HOVER);
+            HBRUSH oBr = (HBRUSH)SelectObject(di->hDC, hBr);
+            HPEN   oPn = (HPEN)SelectObject(di->hDC, GetStockObject(NULL_PEN));
+            RoundRect(di->hDC, rc.left, rc.top, rc.right + 1, rc.bottom + 1, 6, 6);
+            SelectObject(di->hDC, oPn); SelectObject(di->hDC, oBr);
             DeleteObject(hBr);
-        }
-        else
-        {
-            FillRect(di->hDC, &rc, g_hFindPanelBrush);
         }
 
         if (di->hwndItem == g_hFindPrevBtn)
@@ -580,7 +587,7 @@ static LRESULT CALLBACK FindPanelProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         else
         {
             SetBkMode(di->hDC, TRANSPARENT);
-            SetTextColor(di->hDC, RGB(175, 170, 190));
+            SetTextColor(di->hDC, RGB(90, 90, 98));
             HFONT hF = (HFONT)SendMessage(di->hwndItem, WM_GETFONT, 0, 0);
             HFONT oF = (HFONT)SelectObject(di->hDC, hF);
             DrawTextW(di->hDC, L"✕", -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -600,9 +607,19 @@ static LRESULT CALLBACK FindPanelProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         HPEN hPen = CreatePen(PS_SOLID, 1, FP_BORDER);
         HPEN oPen = (HPEN)SelectObject(hdc, hPen);
         HBRUSH oNullBr = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
-        RoundRect(hdc, cr.left, cr.top, cr.right - 1, cr.bottom - 1, 8, 8);
+        RoundRect(hdc, cr.left, cr.top, cr.right, cr.bottom, 10, 10);
         SelectObject(hdc, oPen); SelectObject(hdc, oNullBr);
         DeleteObject(hPen);
+
+        // 검색 상자 테두리 (입력 중이면 강조색)
+        {
+            HPEN ePen = CreatePen(PS_SOLID, 1, GetFocus() == g_hFindEdit ? FP_ACCENT : FP_EDIT_LINE);
+            HPEN oe = (HPEN)SelectObject(hdc, ePen);
+            HBRUSH ob = (HBRUSH)SelectObject(hdc, g_hFindEditBrush);
+            RoundRect(hdc, FP_PAD, FP_ROW1_Y, FP_PAD + FP_EDIT_W, FP_ROW1_Y + FP_BTN_H, 6, 6);
+            SelectObject(hdc, oe); SelectObject(hdc, ob);
+            DeleteObject(ePen);
+        }
 
         // 1·2줄 구분선
         HPEN hSep = CreatePen(PS_SOLID, 1, FP_SEP);
@@ -648,6 +665,7 @@ void CreateFindPanel(HWND hParent)
         WS_CHILD | WS_CLIPSIBLINGS,
         panelX, panelY, FINDPANEL_W, FINDPANEL_H,
         hParent, nullptr, hInst, nullptr);
+    SetWindowRgn(g_hFindPanel, CreateRoundRectRgn(0, 0, FINDPANEL_W + 1, FINDPANEL_H + 1, 10, 10), FALSE);
 
     HFONT hFont   = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
@@ -659,8 +677,8 @@ void CreateFindPanel(HWND hParent)
     // 검색어 에디트
     g_hFindEdit = CreateWindowExW(
         0, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-        x, FP_ROW1_Y, FP_EDIT_W, FP_BTN_H,
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+        x + 6, FP_ROW1_Y + 3, FP_EDIT_W - 12, FP_BTN_H - 6,
         g_hFindPanel, (HMENU)(INT_PTR)IDC_FINDBAR_EDIT, hInst, nullptr);
     SendMessage(g_hFindEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
     x += FP_EDIT_W + FP_GAP + 2;
