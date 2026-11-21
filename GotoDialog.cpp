@@ -8,6 +8,7 @@
 #include <objbase.h>
 #include <dwmapi.h>
 #include <gdiplus.h>
+#include "PopupAnim.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -62,12 +63,7 @@ static RECT GetGotoCancelBtnRect()
 // ── 닫기 (페이드 아웃) ────────────────────────────────────────────────────────
 static void CloseGotoWnd(HWND hWnd)
 {
-    for (int a = 255; a >= 0; a -= 40)
-    {
-        SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-        UpdateWindow(hWnd);
-        Sleep(8);
-    }
+    PopupAnim::Hide(hWnd);
     DestroyWindow(hWnd);
 }
 
@@ -388,16 +384,8 @@ void ShowGotoPageDialog(HWND hWnd)
     DwmExtendFrameIntoClientArea(g_gotoWnd, &margins);
 
     // 페이드 인
-    SetLayeredWindowAttributes(g_gotoWnd, 0, 0, LWA_ALPHA);
-    ShowWindow(g_gotoWnd, SW_SHOW);
-    UpdateWindow(g_gotoWnd);
-    for (int a = 0; a <= 255; a += 30)
-    {
-        SetLayeredWindowAttributes(g_gotoWnd, 0, (BYTE)(a < 255 ? a : 255), LWA_ALPHA);
-        UpdateWindow(g_gotoWnd);
-        Sleep(8);
-    }
-    SetLayeredWindowAttributes(g_gotoWnd, 0, 255, LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(g_gotoWnd);
 
     g_gotoModalDone = false;
     MSG m;

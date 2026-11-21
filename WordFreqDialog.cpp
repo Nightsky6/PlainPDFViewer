@@ -15,6 +15,7 @@
 #include <cwctype>
 #include "Lang.h"
 #include "Strings.h"
+#include "PopupAnim.h"
 #pragma comment(lib,"dwmapi.lib")
 #pragma comment(lib,"gdiplus.lib")
 
@@ -490,6 +491,5 @@ void ShowWordFreqDialog(HWND hParent){
         g_wfWnd,nullptr,GetModuleHandleW(nullptr),nullptr);
     SendMessageW(g_wfStopCheck,WM_SETFONT,(WPARAM)hFont,TRUE);
     SendMessageW(g_wfStopCheck,BM_SETCHECK,BST_CHECKED,0);
-    SetLayeredWindowAttributes(g_wfWnd,0,255,LWA_ALPHA);
-    AnimateWindow(g_wfWnd,150,AW_BLEND);
+    PopupAnim::Show(g_wfWnd);   // 아래에서 살짝 떠오르며 나타남
 }

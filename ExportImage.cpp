@@ -13,6 +13,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include "PopupAnim.h"
 
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -167,7 +168,7 @@ namespace
 
 	void CloseDlg(HWND h)
 	{
-		for (int a = 255; a >= 0; a -= 40) { SetLayeredWindowAttributes(h, 0, (BYTE)a, LWA_ALPHA); UpdateWindow(h); Sleep(8); }
+		PopupAnim::Hide(h);
 		DestroyWindow(h);
 	}
 
@@ -336,11 +337,8 @@ namespace
 		MARGINS mg = { 1, 1, 1, 1 };
 		DwmExtendFrameIntoClientArea(h, &mg);
 
-		SetLayeredWindowAttributes(h, 0, 0, LWA_ALPHA);
-		ShowWindow(h, SW_SHOW);
-		UpdateWindow(h);
-		for (int a = 0; a <= 255; a += 30) { SetLayeredWindowAttributes(h, 0, (BYTE)(a < 255 ? a : 255), LWA_ALPHA); UpdateWindow(h); Sleep(8); }
-		SetLayeredWindowAttributes(h, 0, 255, LWA_ALPHA);
+		// 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+		PopupAnim::Show(h);
 		SetFocus(g_ui.eTo);
 		SendMessageW(g_ui.eTo, EM_SETSEL, -1, 0);
 

@@ -15,6 +15,7 @@
 #include "DocPropertiesDialog.h"
 #include "PlainPDFViewer.h"
 #include "Lang.h"
+#include "PopupAnim.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -351,11 +352,7 @@ namespace
             if (g_dpd.okBtn.pressed && PtInRect(&g_dpd.okBtn.rc, pt)) {
                 g_dpd.closed = true;
                 HWND parent = GetParent(hWnd);
-                for (int a = 255; a >= 0; a -= 30) {
-                    SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-                    UpdateWindow(hWnd);
-                    Sleep(8);
-                }
+                PopupAnim::Hide(hWnd);
                 ShowWindow(hWnd, SW_HIDE);
                 DestroyWindow(hWnd);
                 SetForegroundWindow(parent);
@@ -466,10 +463,8 @@ void DocPropertiesDialog::Show(HWND parent, FPDF_DOCUMENT pdfDoc,
     DwmExtendFrameIntoClientArea(hwnd, &margins);
 
     // 페이드 인
-    SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
-    ShowWindow(hwnd, SW_SHOW);
-    AnimateWindow(hwnd, 180, AW_BLEND);
-    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(hwnd);
     SetFocus(hwnd);
 
     // 모달 메시지 루프

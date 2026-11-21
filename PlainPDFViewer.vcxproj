@@ -234,6 +234,7 @@
     <ClInclude Include="WinOcr.h" />
     <ClInclude Include="GroupPanel.h" />
     <ClInclude Include="PanelTheme.h" />
+    <ClInclude Include="PopupAnim.h" />
     <ClInclude Include="KeywordDialog.h" />
     <ClInclude Include="FindBar.h" />
     <ClInclude Include="SelToolbar.h" />

@@ -19,6 +19,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "PopupAnim.h"
 
 
 // ── 크기 상수 ──────────────────────────────────────────────────
@@ -687,9 +688,7 @@ void ShowWordCloudDialog(HWND hParent,FPDF_DOCUMENT doc,int pageCount)
     if(!hWnd){ Gdiplus::GdiplusShutdown(s->gdipToken); delete s; g_wc=nullptr; return; }
     DWORD cornerPref=2; DwmSetWindowAttribute(hWnd,33,&cornerPref,sizeof(cornerPref));
     MARGINS margins={1,1,1,1}; DwmExtendFrameIntoClientArea(hWnd,&margins);
-    SetLayeredWindowAttributes(hWnd,0,255,LWA_ALPHA);
-    ShowWindow(hWnd,SW_SHOW);
-    AnimateWindow(hWnd,150,AW_BLEND);
+    PopupAnim::Show(hWnd);   // 아래에서 살짝 떠오르며 나타남
     UpdateWindow(hWnd);
     bool done=false; s->pDone=&done;
     MSG msgLoop{};

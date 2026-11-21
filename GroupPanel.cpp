@@ -20,6 +20,7 @@
 #include "PlainPDFViewer.h"
 #include "Lang.h"
 #include "Strings.h"
+#include "PopupAnim.h"
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "Shell32.lib")
@@ -376,10 +377,7 @@ namespace
                 }
                 g_popup.ok = ok; g_popup.closed = true;
                 HWND par = GetParent(hWnd);
-                for (int a=255; a>=0; a-=40) {
-                    SetLayeredWindowAttributes(hWnd,0,(BYTE)a,LWA_ALPHA);
-                    UpdateWindow(hWnd); Sleep(8);
-                }
+                PopupAnim::Hide(hWnd);
                 if (g_popup.hFont) { DeleteObject(g_popup.hFont); g_popup.hFont=nullptr; }
                 CloseModal(hWnd);
                 if (par) SetForegroundWindow(par);
@@ -445,10 +443,8 @@ namespace
             20,74,W-40,28,hwnd,nullptr,hInst,nullptr);
         SendMessage(g_popup.hEdit,WM_SETFONT,(WPARAM)g_popup.hFont,TRUE);
 
-        SetLayeredWindowAttributes(hwnd,0,0,LWA_ALPHA);
-        ShowWindow(hwnd,SW_SHOW);
-        AnimateWindow(hwnd,180,AW_BLEND);
-        SetLayeredWindowAttributes(hwnd,0,255,LWA_ALPHA);
+        // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+        PopupAnim::Show(hwnd);
         SetFocus(g_popup.hEdit);
         // 커서를 텍스트 끝으로
         SendMessage(g_popup.hEdit,EM_SETSEL,0,-1);
@@ -925,10 +921,8 @@ namespace
         SendMessage(d.hEdit, EM_SETLIMITTEXT, 0, 0);  // 기본 32K 제한 해제
         MemoRelayout(&d);
 
-        SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
-        ShowWindow(hwnd, SW_SHOW);
-        AnimateWindow(hwnd, 160, AW_BLEND);
-        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+        PopupAnim::Show(hwnd);
         SetForegroundWindow(hwnd);
         SetFocus(d.hEdit);
         SendMessage(d.hEdit, EM_SETSEL, (WPARAM)-1, (LPARAM)-1);  // 커서를 끝으로
@@ -1771,10 +1765,8 @@ void GroupPanel::ShowManageDialog(HWND parent)
     MARGINS margins={1,1,1,1};
     DwmExtendFrameIntoClientArea(hwnd,&margins);
 
-    SetLayeredWindowAttributes(hwnd,0,0,LWA_ALPHA);
-    ShowWindow(hwnd,SW_SHOW);
-    AnimateWindow(hwnd,200,AW_BLEND);
-    SetLayeredWindowAttributes(hwnd,0,255,LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(hwnd);
     SetForegroundWindow(hwnd);
 
     // 메인 창을 비활성화: 이 창에서 띄우는 입력 팝업·MessageBox·파일 대화상자 중에도

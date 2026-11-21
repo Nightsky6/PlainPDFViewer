@@ -7,15 +7,18 @@
 #include <commctrl.h>
 #include <gdiplus.h>
 #include <winspool.h>
+#include <dwmapi.h>
 #include <algorithm>
 #include <string>
 #include <vector>
 #include <mutex>
 #include "PrintDialog.h"
 #include "Lang.h"
+#include "PopupAnim.h"
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "winspool.lib")
+#pragma comment(lib, "dwmapi.lib")
 
 namespace
 {
@@ -783,22 +786,6 @@ namespace
 	}
 }
 
-// 정보 창과 같은 페이드 효과 (같은 시간, 같은 부드러운 가감속).
-// 투명도만 바꾸므로 메시지를 처리하지 않아도 DWM이 화면에 반영한다.
-static void FadeWindow(HWND h, bool fadeIn, int durationMs)
-{
-	const ULONGLONG start = GetTickCount64();
-	for (;;)
-	{
-		const int elapsed = (int)(GetTickCount64() - start);
-		float t = std::min(1.0f, (float)elapsed / durationMs);
-		t = t * t * (3.0f - 2.0f * t);
-		SetLayeredWindowAttributes(h, 0, (BYTE)(255 * (fadeIn ? t : 1.0f - t)), LWA_ALPHA);
-		if (elapsed >= durationMs) break;
-		Sleep(16);
-	}
-}
-
 bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentPage,
 					 const std::vector<int>& rotations, std::mutex& pdfiumMtx, PrintDialogResult& out)
 {
@@ -881,6 +868,9 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	HWND h = CreateWindowExW(exStyle, PD_CLASS, T(L"\uC778\uC1C4", L"Print"), style,
 							 x, y, ww, wh, parent, nullptr, GetModuleHandleW(nullptr), nullptr);
 	s.hDlg = h;
+	// 제목 표시줄이 있는 창이라 Windows가 열기/닫기 애니메이션(확대·페이드)을 따로 재생한다.
+	// 직접 하는 페이드와 겹쳐 지저분하게 보이므로 시스템 애니메이션은 끈다
+	{ BOOL off = TRUE; DwmSetWindowAttribute(h, DWMWA_TRANSITIONS_FORCEDISABLED, &off, sizeof(off)); }
 
 	auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD st, DWORD ex,
 				  int cx, int cy, int cw, int ch, int id) -> HWND
@@ -963,7 +953,7 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	ShowWindow(h, SW_SHOW);
 	SetForegroundWindow(h);
 	RedrawWindow(h, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-	FadeWindow(h, true, 220);
+	PopupAnim::Show(h);   // 아래에서 살짝 떠오르며 나타남 (이미 표시·그려진 상태)
 
 	MSG msg;
 	while (!s.done && GetMessageW(&msg, nullptr, 0, 0) > 0)
@@ -976,7 +966,7 @@ bool ShowPrintDialog(HWND parent, FPDF_DOCUMENT doc, int pageCount, int currentP
 	}
 
 	KillTimer(h, 1);
-	if (IsWindow(h)) FadeWindow(h, false, 300); // 인쇄·취소·닫기 모두 서서히 사라진다
+	if (IsWindow(h)) PopupAnim::Hide(h); // 인쇄·취소·닫기 모두 살짝 가라앉으며 사라진다
 	if (parent) EnableWindow(parent, TRUE);
 	DestroyWindow(h);
 	if (parent) SetForegroundWindow(parent);

@@ -12,6 +12,7 @@
 #include <string>
 #include "CleanPreferences.h"
 #include "Lang.h"
+#include "PopupAnim.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -502,11 +503,7 @@ namespace
         HWND parent = GetParent(hWnd);
 
         // 페이드아웃
-        for (int a = 220; a >= 0; a -= 44) {
-            SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-            UpdateWindow(hWnd);
-            Sleep(6);
-        }
+        PopupAnim::Hide(hWnd);
 
         // 순서 중요: 부모 활성화 먼저 → 창 숨김 → 소멸
         // EnableWindow 복원 후 곧바로 SetForegroundWindow 하면
@@ -841,16 +838,9 @@ bool CleanPreferences::Show(HWND parent, AppPreferences& prefs)
     LayoutControls(hWnd);
 
     // 페이드인: 부모 비활성화 → 창 표시 → 포커스
-    // AnimateWindow(AW_BLEND) 대신 수동 페이드로 레이어드 창과 충돌 방지
-    SetLayeredWindowAttributes(hWnd, 0, 0, LWA_ALPHA);
     EnableWindow(parent, FALSE);
-    ShowWindow(hWnd, SW_SHOWNOACTIVATE);
-    for (int a = 0; a <= 255; a += 51) {
-        SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-        UpdateWindow(hWnd);
-        Sleep(6);
-    }
-    SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(hWnd, SW_SHOWNOACTIVATE);
     SetForegroundWindow(hWnd);
     SetFocus(hWnd);
 

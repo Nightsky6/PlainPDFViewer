@@ -90,6 +90,9 @@
     <ClInclude Include="PanelTheme.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="PopupAnim.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="Strings.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>

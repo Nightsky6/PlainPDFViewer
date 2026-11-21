@@ -9,6 +9,7 @@
 #include <commdlg.h>
 #include <algorithm>
 #include "SignaturePad.h"
+#include "PopupAnim.h"
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -240,11 +241,7 @@ namespace
         g_ss.ok     = ok;
         g_ss.closed = true;
         HWND parent = GetParent(hWnd);
-        for (int a = 220; a >= 0; a -= 55) {
-            SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-            UpdateWindow(hWnd);
-            Sleep(5);
-        }
+        PopupAnim::Hide(hWnd);
         EnableWindow(parent, TRUE);
         SetForegroundWindow(parent);
         SetFocus(parent);
@@ -505,15 +502,9 @@ SignatureResult ShowSignaturePad(HWND parent)
     DwmSetWindowAttribute(hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
 
     // 페이드인
-    SetLayeredWindowAttributes(hWnd, 0, 0, LWA_ALPHA);
     EnableWindow(parent, FALSE);
-    ShowWindow(hWnd, SW_SHOWNOACTIVATE);
-    for (int a = 0; a <= 255; a += 51) {
-        SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-        UpdateWindow(hWnd);
-        Sleep(5);
-    }
-    SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(hWnd, SW_SHOWNOACTIVATE);
     SetForegroundWindow(hWnd);
     SetFocus(hWnd);
 

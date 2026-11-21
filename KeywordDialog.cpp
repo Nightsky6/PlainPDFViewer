@@ -20,6 +20,7 @@ static HWND g_kwWnd=nullptr,g_kwEditBox=nullptr,g_kwCombo=nullptr,g_kwList=nullp
 static bool g_kwDone=false,g_kwAddHover=false,g_kwDelHover=false,g_kwCloseHover=false,g_kwAddPressed=false;
 
 #include "Strings.h"
+#include "PopupAnim.h"
 
 static const COLORREF kColors[] = {
     RGB(255,255,80),
@@ -279,7 +280,7 @@ static LRESULT CALLBACK KwWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam
         }
         return hit;}
     case WM_CLOSE:
-        for(int a=255;a>=0;a-=30){SetLayeredWindowAttributes(hWnd,0,(BYTE)a,LWA_ALPHA);UpdateWindow(hWnd);Sleep(10);}
+        PopupAnim::Hide(hWnd);
         DestroyWindow(hWnd); return 0;
     case WM_DESTROY:
     {
@@ -378,8 +379,6 @@ void ShowKeywordDialog(HWND hParent){
     SendMessageW(g_kwEditBox, WM_SETFONT, (WPARAM)hFont,     TRUE);
     SendMessageW(g_kwCombo,   WM_SETFONT, (WPARAM)hFont,     TRUE);
     SendMessageW(g_kwList,    WM_SETFONT, (WPARAM)hFontList, TRUE);
-    SetLayeredWindowAttributes(g_kwWnd,0,0,LWA_ALPHA);
-    ShowWindow(g_kwWnd,SW_SHOWNOACTIVATE);
-    AnimateWindow(g_kwWnd,180,AW_BLEND);
-    SetLayeredWindowAttributes(g_kwWnd,0,255,LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(g_kwWnd, SW_SHOWNOACTIVATE);
 }

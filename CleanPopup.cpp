@@ -13,6 +13,7 @@
 #include "CleanPopup.h"
 #include "Lang.h"
 #include "Strings.h"
+#include "PopupAnim.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -185,12 +186,7 @@ namespace
     {
         HWND parent = GetParent(hWnd);
         // 수동 페이드아웃 (parent 무효화 방지)
-        for (int alpha = 255; alpha >= 0; alpha -= 30)
-        {
-            SetLayeredWindowAttributes(hWnd, 0, (BYTE)alpha, LWA_ALPHA);
-            UpdateWindow(hWnd);
-            Sleep(10);
-        }
+        PopupAnim::Hide(hWnd);
         ShowWindow(hWnd, SW_HIDE);
         DestroyWindow(hWnd);
         EnableWindow(parent, TRUE);
@@ -408,10 +404,8 @@ bool CleanPopup::Show(HWND parent, const std::wstring& title,
     DwmExtendFrameIntoClientArea(hwnd, &margins);
 
     // 페이드 인
-    SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
-    ShowWindow(hwnd, SW_SHOW);
-    AnimateWindow(hwnd, 180, AW_BLEND);
-    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(hwnd);
 
     // 모달 메시지 루프 (EnableWindow 없이 입력 필터링)
     MSG msg2;
@@ -450,7 +444,7 @@ namespace
     constexpr UINT_PTR ABOUT_FADEOUT_TIMER = 402;
     constexpr int      ABOUT_FADE_INTERVAL = 16;   // ~60fps
     constexpr int      ABOUT_FADEIN_MS     = 220;
-    constexpr int      ABOUT_FADEOUT_MS    = 300;
+    constexpr int      ABOUT_FADEOUT_MS    = 90;   // 사라질 때는 빠르게
 
     const wchar_t* ABOUT_CLASS_NAME = L"CleanPopupAboutClass";
     bool g_aboutClassRegistered = false;
@@ -621,12 +615,12 @@ namespace
                     KillTimer(hWnd, ABOUT_FADEIN_TIMER);
                     g_about.fadingIn    = false;
                     g_about.fadeElapsed = 0;
-                    SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+                    PopupAnim::Frame(hWnd, 1.0f, true);
+                    PopupAnim::End(hWnd);
                     return 0;
                 }
                 float t = (float)g_about.fadeElapsed / ABOUT_FADEIN_MS;
-                t = t * t * (3.0f - 2.0f * t);
-                SetLayeredWindowAttributes(hWnd, 0, (BYTE)(255 * t), LWA_ALPHA);
+                PopupAnim::Frame(hWnd, t, true);     // 떠오르며 나타남
                 return 0;
             }
             if (wParam == ABOUT_FADEOUT_TIMER)
@@ -637,6 +631,7 @@ namespace
                     KillTimer(hWnd, ABOUT_FADEOUT_TIMER);
                     g_about.fadingOut = false;
                     g_about.closed    = true;
+                    PopupAnim::End(hWnd);
                     ShowWindow(hWnd, SW_HIDE);
                     HWND parent = GetParent(hWnd);
                     DestroyWindow(hWnd);
@@ -645,8 +640,7 @@ namespace
                     return 0;
                 }
                 float t = (float)g_about.fadeElapsed / ABOUT_FADEOUT_MS;
-                t = t * t * (3.0f - 2.0f * t);
-                SetLayeredWindowAttributes(hWnd, 0, (BYTE)(255 * (1.0f - t)), LWA_ALPHA);
+                PopupAnim::Frame(hWnd, t, false);    // 가라앉으며 사라짐
                 return 0;
             }
             break;
@@ -721,6 +715,7 @@ namespace
             if (g_about.okBtn.pressed && PtInRect(&g_about.okBtn.rc, pt)) {
                 g_about.fadingOut   = true;
                 g_about.fadeElapsed = 0;
+                PopupAnim::Begin(hWnd);
                 SetTimer(hWnd, ABOUT_FADEOUT_TIMER, ABOUT_FADE_INTERVAL, nullptr);
             }
             g_about.okBtn.pressed = false;
@@ -812,7 +807,8 @@ void CleanPopup::ShowAbout(HWND parent, int pngResourceId,
 
     g_about.fadingIn    = true;
     g_about.fadeElapsed = 0;
-    SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
+    PopupAnim::Begin(hwnd);                 // 최종 위치 기억 → 아래에서 떠오르며 나타남
+    PopupAnim::Frame(hwnd, 0.0f, true);
     ShowWindow(hwnd, SW_SHOW);
     SetTimer(hwnd, ABOUT_FADEIN_TIMER, ABOUT_FADE_INTERVAL, nullptr);
 
@@ -852,7 +848,7 @@ namespace
     constexpr UINT_PTR LIC_FADEOUT_TIMER = 502;
     constexpr int      LIC_FADE_INTERVAL = 16;   // ~60fps
     constexpr int      LIC_FADEIN_MS     = 220;
-    constexpr int      LIC_FADEOUT_MS    = 300;
+    constexpr int      LIC_FADEOUT_MS    = 90;     // 사라질 때는 빠르게
 
     const wchar_t* LICENSE_CLASS_NAME = L"CleanPopupLicenseClass";
     bool g_licClassRegistered = false;
@@ -976,12 +972,12 @@ namespace
                     KillTimer(hWnd, LIC_FADEIN_TIMER);
                     g_lic.fadingIn    = false;
                     g_lic.fadeElapsed = 0;
-                    SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+                    PopupAnim::Frame(hWnd, 1.0f, true);
+                    PopupAnim::End(hWnd);
                     return 0;
                 }
                 float t = (float)g_lic.fadeElapsed / LIC_FADEIN_MS;
-                t = t * t * (3.0f - 2.0f * t);
-                SetLayeredWindowAttributes(hWnd, 0, (BYTE)(255 * t), LWA_ALPHA);
+                PopupAnim::Frame(hWnd, t, true);     // 떠오르며 나타남
                 return 0;
             }
             if (wParam == LIC_FADEOUT_TIMER)
@@ -992,6 +988,7 @@ namespace
                     KillTimer(hWnd, LIC_FADEOUT_TIMER);
                     g_lic.fadingOut = false;
                     g_lic.closed    = true;
+                    PopupAnim::End(hWnd);
                     ShowWindow(hWnd, SW_HIDE);
                     if (g_lic.hEditFont) { DeleteObject(g_lic.hEditFont); g_lic.hEditFont = nullptr; }
                     HWND parent = GetParent(hWnd);
@@ -1001,8 +998,7 @@ namespace
                     return 0;
                 }
                 float t = (float)g_lic.fadeElapsed / LIC_FADEOUT_MS;
-                t = t * t * (3.0f - 2.0f * t);
-                SetLayeredWindowAttributes(hWnd, 0, (BYTE)(255 * (1.0f - t)), LWA_ALPHA);
+                PopupAnim::Frame(hWnd, t, false);    // 가라앉으며 사라짐
                 return 0;
             }
             break;
@@ -1070,6 +1066,7 @@ namespace
             if (g_lic.okBtn.pressed && PtInRect(&g_lic.okBtn.rc, pt)) {
                 g_lic.fadingOut   = true;
                 g_lic.fadeElapsed = 0;
+                PopupAnim::Begin(hWnd);
                 SetTimer(hWnd, LIC_FADEOUT_TIMER, LIC_FADE_INTERVAL, nullptr);
             }
             g_lic.okBtn.pressed = false;
@@ -1176,7 +1173,8 @@ void CleanPopup::ShowLicense(HWND parent, int pngResourceId,
 
     g_lic.fadingIn    = true;
     g_lic.fadeElapsed = 0;
-    SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
+    PopupAnim::Begin(hwnd);                 // 최종 위치 기억 → 아래에서 떠오르며 나타남
+    PopupAnim::Frame(hwnd, 0.0f, true);
     ShowWindow(hwnd, SW_SHOW);
     SetTimer(hwnd, LIC_FADEIN_TIMER, LIC_FADE_INTERVAL, nullptr);
 
@@ -1418,10 +1416,7 @@ namespace
                 g_ni.closed    = true;
                 // 페이드아웃
                 HWND par = GetParent(hWnd);
-                for (int a = 255; a >= 0; a -= 40) {
-                    SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-                    UpdateWindow(hWnd); Sleep(8);
-                }
+                PopupAnim::Hide(hWnd);
                 ShowWindow(hWnd, SW_HIDE);
                 DestroyWindow(hWnd);
                 EnableWindow(par, TRUE); SetFocus(par);
@@ -1431,10 +1426,7 @@ namespace
                 g_ni.confirmed = false;
                 g_ni.closed    = true;
                 HWND par = GetParent(hWnd);
-                for (int a = 255; a >= 0; a -= 40) {
-                    SetLayeredWindowAttributes(hWnd, 0, (BYTE)a, LWA_ALPHA);
-                    UpdateWindow(hWnd); Sleep(8);
-                }
+                PopupAnim::Hide(hWnd);
                 ShowWindow(hWnd, SW_HIDE);
                 DestroyWindow(hWnd);
                 EnableWindow(par, TRUE); SetFocus(par);
@@ -1558,10 +1550,8 @@ static bool RunNoteInput(HWND parent, const std::wstring& title, std::wstring& t
     DwmExtendFrameIntoClientArea(hwnd, &margins);
 
     // 페이드인
-    SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
-    ShowWindow(hwnd, SW_SHOW);
-    AnimateWindow(hwnd, 180, AW_BLEND);
-    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
+    PopupAnim::Show(hwnd);
 
     // 모달 메시지 루프
     MSG msg2;
