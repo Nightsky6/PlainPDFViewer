@@ -3654,8 +3654,9 @@ RECT GetViewportRect(const RECT& clientRect)
 
 // ─── 그라데이션 배경 / 툴바 / 상태바 / DrawAlphaLine 은 Toolbar.h / Toolbar.cpp 참조 ──
 
-// 텍스트 선택 영역·하이라이트가 글자에 딱 붙지 않도록 위아래에 주는 여백 (줄 높이 대비)
-static constexpr double kHighlightPadRatio = 0.1;
+// 텍스트 선택 영역·하이라이트가 글자에 딱 붙지 않도록 주는 여백 (줄 높이 대비)
+static constexpr double kHighlightPadRatio  = 0.1;    // 위아래
+static constexpr double kHighlightPadXRatio = 0.05;   // 좌우 (같은 줄은 합쳐 그리므로 줄 맨 앞·맨 끝에만 붙음)
 
 // ─── annotation rect 계산 헬퍼 ─────────────────────────────────────────────────
 // FPDFText 로부터 병합된 PDF 좌표 rect 목록을 반환한다.
@@ -3805,7 +3806,8 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
                 // (밑줄·취소선도 BuildAnnotRects 를 쓰므로 캐시가 아닌 여기서 적용)
                 const double padY = (r.top - r.bottom) * kHighlightPadRatio;
                 int sx1, sy1, sx2, sy2;
-                PdfRectToScreen(r.left, r.top + padY, r.right, r.bottom - padY, pageW, pageH,
+                const double padX = (r.top - r.bottom) * kHighlightPadXRatio;
+                PdfRectToScreen(r.left - padX, r.top + padY, r.right + padX, r.bottom - padY, pageW, pageH,
                     pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx1, &sy1, &sx2, &sy2);
 
                 int cx1 = std::max(sx1, (int)vp.left);
@@ -6661,7 +6663,7 @@ void EmbedHighlightAnnotations()
             : item.isSquiggly ? FPDF_ANNOT_SQUIGGLY
             : item.isUnderline ? FPDF_ANNOT_UNDERLINE : FPDF_ANNOT_HIGHLIGHT;
 
-        // 하이라이트는 화면과 같게 위아래 여백을 넣어 저장 (외부 뷰어도 같은 모양으로 보이도록)
+        // 하이라이트는 화면과 같게 위아래·좌우 여백을 넣어 저장 (외부 뷰어도 같은 모양으로 보이도록)
         // 밑줄·취소선·물결선은 선 위치가 사각형 기준이라 그대로 둠
         if (annotType == FPDF_ANNOT_HIGHLIGHT)
         {
@@ -6724,8 +6726,11 @@ void EmbedHighlightAnnotations()
     closePage();
 }
 
+                const double padX = (r.top - r.bottom) * kHighlightPadXRatio;
 // 메모를 PDF FreeText 어노테이션으로 저장
 void EmbedNoteAnnotations()
+                r.left   -= padX;
+                r.right  += padX;
 {
     if (!g_pdfDoc || g_notes.empty()) return;
 
@@ -7519,7 +7524,7 @@ static void DrawTextSelection(HDC hdc, const RECT& clientRect)
                 &g_selRectCache.rects[ri].left, &g_selRectCache.rects[ri].top,
                 &g_selRectCache.rects[ri].right, &g_selRectCache.rects[ri].bottom);
             double h = g_selRectCache.rects[ri].top - g_selRectCache.rects[ri].bottom;
-            // 글자 상자에 딱 맞으면 답답해 보이므로 위아래로 같은 여백을 줌
+            // 글자 상자에 딱 맞으면 답답해 보이므로 위아래·좌우로 여백을 줌
             if (h > 0)
             {
                 g_selRectCache.rects[ri].top    += h * kHighlightPadRatio;
@@ -7579,6 +7584,8 @@ static void DrawTextSelection(HDC hdc, const RECT& clientRect)
     {
         g_selBlendDC  = CreateCompatibleDC(hdc);
         g_selBlendBmp = CreateCompatibleBitmap(hdc, 1, 1);
+                g_selRectCache.rects[ri].left   -= h * kHighlightPadXRatio;
+                g_selRectCache.rects[ri].right  += h * kHighlightPadXRatio;
         g_selBlendOld = static_cast<HBITMAP>(SelectObject(g_selBlendDC, g_selBlendBmp));
     }
     // 색상이 바뀔 수 있으므로 매번 채움 (FillRect는 매우 빠름)
