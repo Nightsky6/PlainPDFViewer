@@ -362,6 +362,7 @@ static bool g_isDraggingRedact = false;
 static int  g_redactDragStartX = 0, g_redactDragStartY = 0; // 화면 좌표
 static int  g_redactDragCurX   = 0, g_redactDragCurY   = 0;
 static int  g_selectedRedact   = -1;
+static int  g_redactDragPage   = -1;   // 드래그를 시작한 페이지 (마우스 아래 페이지 기준)
 
 // ─── 하이라이트 모드 ───────────────────────────────────────────────────────────
 bool     g_highlightMode  = false;
@@ -3805,8 +3806,8 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
                 // 텍스트 선택 영역과 같게 위아래로 줄 높이의 10% 여백
                 // (밑줄·취소선도 BuildAnnotRects 를 쓰므로 캐시가 아닌 여기서 적용)
                 const double padY = (r.top - r.bottom) * kHighlightPadRatio;
-                int sx1, sy1, sx2, sy2;
                 const double padX = (r.top - r.bottom) * kHighlightPadXRatio;
+                int sx1, sy1, sx2, sy2;
                 PdfRectToScreen(r.left - padX, r.top + padY, r.right + padX, r.bottom - padY, pageW, pageH,
                     pgLeft, pgTopPos, g_zoom, GetEffectiveRotation(hl.pageIndex), &sx1, &sy1, &sx2, &sy2);
 
@@ -5052,6 +5053,52 @@ static int HitTestSignature(int screenX, int screenY, const RECT& vp)
     return -1;
 }
 
+// 가리기 상자의 화면 사각형
+static RECT RedactScreenRect(const RedactItem& rd, const RECT& vp)
+{
+    int pgL, pgT;
+    GetPageScreenPos(rd.pageIndex, vp, &pgL, &pgT);
+    const double pageW = g_pageLayouts[rd.pageIndex].pdfW;
+    const double pageH = g_pageLayouts[rd.pageIndex].pdfH;
+    const int rot = GetEffectiveRotation(rd.pageIndex);
+    int sxA, syA, sxB, syB;
+    PdfToScreen(rd.pdfX,           rd.pdfY,           pageW, pageH, pgL, pgT, g_zoom, rot, &sxA, &syA);
+    PdfToScreen(rd.pdfX + rd.pdfW, rd.pdfY - rd.pdfH, pageW, pageH, pgL, pgT, g_zoom, rot, &sxB, &syB);
+    return { std::min(sxA, sxB), std::min(syA, syB), std::max(sxA, sxB), std::max(syA, syB) };
+}
+
+// 선택한 상자 오른쪽 위 모서리의 ✕(삭제) 버튼
+static RECT RedactDeleteBtnRect(const RECT& box)
+{
+    const int s = 20;
+    return { box.right - s / 2, box.top - s / 2, box.right + s / 2, box.top + s / 2 };
+}
+
+// 화면 좌표의 가리기 상자 (위에 그려진 것 우선, 4px 여유). 없으면 -1
+static int HitTestRedact(int x, int y, const RECT& vp)
+{
+    const POINT pt = { x, y };
+    for (int ri = (int)g_redacts.size() - 1; ri >= 0; ri--)
+    {
+        const auto& rd = g_redacts[ri];
+        if (rd.pageIndex < 0 || rd.pageIndex >= (int)g_pageLayouts.size()) continue;
+        RECT r = RedactScreenRect(rd, vp);
+        InflateRect(&r, 4, 4);
+        if (PtInRect(&r, pt)) return ri;
+    }
+    return -1;
+}
+
+// 페이지의 화면 사각형
+static RECT PageScreenRect(int page, const RECT& vp)
+{
+    int pgL, pgT;
+    GetPageScreenPos(page, vp, &pgL, &pgT);
+    return { pgL, pgT, pgL + g_pageLayouts[page].renderW, pgT + g_pageLayouts[page].renderH };
+}
+
+// 가리기 상자: 저장했을 때와 같은 검은 상자로 미리 보여 준다.
+// 선택한 상자는 파란 테두리 + 오른쪽 위 ✕ 버튼
 static void DrawRedacts(HDC hdc, const RECT& clientRect)
 {
     if (!g_pdfDoc || g_pageLayouts.empty()) return;
@@ -5059,43 +5106,51 @@ static void DrawRedacts(HDC hdc, const RECT& clientRect)
     RECT vp = GetViewportRect(clientRect);
     Gdiplus::Graphics g(hdc);
 
-    // 저장된 redact 박스 그리기
     for (int ri = 0; ri < (int)g_redacts.size(); ri++)
     {
         const auto& rd = g_redacts[ri];
         if (rd.pageIndex < 0 || rd.pageIndex >= (int)g_pageLayouts.size()) continue;
-        int pgL, pgT;
-        GetPageScreenPos(rd.pageIndex, vp, &pgL, &pgT);
-        double pageW = g_pageLayouts[rd.pageIndex].pdfW;
-        double pageH = g_pageLayouts[rd.pageIndex].pdfH;
-        int sxA, syA, sxB, syB;
-        PdfToScreen(rd.pdfX,           rd.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sxA, &syA);
-        PdfToScreen(rd.pdfX + rd.pdfW, rd.pdfY - rd.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sxB, &syB);
-        int sx1 = std::min(sxA, sxB), sy1 = std::min(syA, syB);
-        int sx2 = std::max(sxA, sxB), sy2 = std::max(syA, syB);
+        const RECT r = RedactScreenRect(rd, vp);
+        // 픽셀 단위로 정확히 맞도록 GDI로 채우고 테두리를 그린다
+        // (GDI+ 펜은 선 중심 기준이라 2px 테두리가 한쪽으로 1px 어긋나 보였음)
+        FillRect(hdc, &r, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
 
-        // 반투명 빨간 채우기
-        Gdiplus::SolidBrush fillBr(Gdiplus::Color(120, 220, 20, 20));
-        g.FillRectangle(&fillBr, sx1, sy1, sx2 - sx1, sy2 - sy1);
+        if (ri == g_selectedRedact)
+        {
+            // 검은 상자 바로 바깥에 딱 붙는 2px 파란 테두리
+            HBRUSH selBr = CreateSolidBrush(RGB(0, 120, 212));
+            RECT o1 = r; InflateRect(&o1, 1, 1); FrameRect(hdc, &o1, selBr);
+            RECT o2 = r; InflateRect(&o2, 2, 2); FrameRect(hdc, &o2, selBr);
+            DeleteObject(selBr);
 
-        // 테두리
-        Gdiplus::Color borderCol = (ri == g_selectedRedact)
-            ? Gdiplus::Color(255, 255, 0, 0)
-            : Gdiplus::Color(200, 180, 0, 0);
-        Gdiplus::Pen pen(borderCol, ri == g_selectedRedact ? 2.f : 1.f);
-        g.DrawRectangle(&pen, sx1, sy1, sx2 - sx1, sy2 - sy1);
+            // ✕ 삭제 버튼 (흰 원 + 회색 테두리 + 짙은 X)
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            const RECT b = RedactDeleteBtnRect(r);
+            const float bx = (float)b.left, by = (float)b.top, bs = (float)(b.right - b.left);
+            Gdiplus::SolidBrush shadow(Gdiplus::Color(40, 0, 0, 0));
+            g.FillEllipse(&shadow, bx, by + 1.f, bs, bs);
+            Gdiplus::SolidBrush white(Gdiplus::Color(255, 255, 255, 255));
+            g.FillEllipse(&white, bx, by, bs, bs);
+            Gdiplus::Pen ring(Gdiplus::Color(255, 0, 120, 212), 1.5f);
+            g.DrawEllipse(&ring, bx + 0.75f, by + 0.75f, bs - 1.5f, bs - 1.5f);
+            Gdiplus::Pen xp(Gdiplus::Color(255, 40, 40, 46), 1.6f);
+            const float c = bs / 2.f, k = 4.f;
+            g.DrawLine(&xp, bx + c - k, by + c - k, bx + c + k, by + c + k);
+            g.DrawLine(&xp, bx + c + k, by + c - k, bx + c - k, by + c + k);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeDefault);
+        }
     }
 
-    // 드래그 중인 새 영역 미리보기
+    // 드래그 중인 새 영역 미리보기 (반투명 검정 + 점선)
     if (g_isDraggingRedact)
     {
         int x1 = std::min(g_redactDragStartX, g_redactDragCurX);
         int y1 = std::min(g_redactDragStartY, g_redactDragCurY);
         int x2 = std::max(g_redactDragStartX, g_redactDragCurX);
         int y2 = std::max(g_redactDragStartY, g_redactDragCurY);
-        Gdiplus::SolidBrush previewBr(Gdiplus::Color(80, 220, 20, 20));
+        Gdiplus::SolidBrush previewBr(Gdiplus::Color(150, 0, 0, 0));
         g.FillRectangle(&previewBr, x1, y1, x2 - x1, y2 - y1);
-        Gdiplus::Pen previewPen(Gdiplus::Color(220, 200, 0, 0), 1.f);
+        Gdiplus::Pen previewPen(Gdiplus::Color(230, 0, 120, 212), 1.f);
         previewPen.SetDashStyle(Gdiplus::DashStyleDash);
         g.DrawRectangle(&previewPen, x1, y1, x2 - x1, y2 - y1);
     }
@@ -6671,8 +6726,11 @@ void EmbedHighlightAnnotations()
             {
                 if (r.left >= r.right) continue;
                 const double padY = (r.top - r.bottom) * kHighlightPadRatio;
+                const double padX = (r.top - r.bottom) * kHighlightPadXRatio;
                 r.top    += padY;
                 r.bottom -= padY;
+                r.left   -= padX;
+                r.right  += padX;
             }
         }
         FPDF_ANNOTATION annot = FPDFPage_CreateAnnot(workPage, annotType);
@@ -6726,11 +6784,8 @@ void EmbedHighlightAnnotations()
     closePage();
 }
 
-                const double padX = (r.top - r.bottom) * kHighlightPadXRatio;
 // 메모를 PDF FreeText 어노테이션으로 저장
 void EmbedNoteAnnotations()
-                r.left   -= padX;
-                r.right  += padX;
 {
     if (!g_pdfDoc || g_notes.empty()) return;
 
@@ -7529,6 +7584,8 @@ static void DrawTextSelection(HDC hdc, const RECT& clientRect)
             {
                 g_selRectCache.rects[ri].top    += h * kHighlightPadRatio;
                 g_selRectCache.rects[ri].bottom -= h * kHighlightPadRatio;
+                g_selRectCache.rects[ri].left   -= h * kHighlightPadXRatio;
+                g_selRectCache.rects[ri].right  += h * kHighlightPadXRatio;
             }
         }
 
@@ -7584,8 +7641,6 @@ static void DrawTextSelection(HDC hdc, const RECT& clientRect)
     {
         g_selBlendDC  = CreateCompatibleDC(hdc);
         g_selBlendBmp = CreateCompatibleBitmap(hdc, 1, 1);
-                g_selRectCache.rects[ri].left   -= h * kHighlightPadXRatio;
-                g_selRectCache.rects[ri].right  += h * kHighlightPadXRatio;
         g_selBlendOld = static_cast<HBITMAP>(SelectObject(g_selBlendDC, g_selBlendBmp));
     }
     // 색상이 바뀔 수 있으므로 매번 채움 (FillRect는 매우 빠름)
@@ -10882,8 +10937,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (!g_pdfDoc) { CleanPopup::Show(hWnd, LS(STR_REDACT_TITLE), LS(STR_REDACT_NO_PDF)); break; }
             g_redactMode = !g_redactMode;
             // 모드 종료 시 드래그 상태도 초기화
-            if (!g_redactMode) g_isDraggingRedact = false;
-            else TextEdit::SetActive(hWnd, false);
+            if (!g_redactMode) { g_isDraggingRedact = false; g_selectedRedact = -1; }
+            else
+            {
+                TextEdit::SetActive(hWnd, false);
+                ShowToast(hWnd, LS(STR_REDACT_HINT), 4500);   // 두 줄이라 조금 길게
+            }
             HMENU hMenu = GetMenu(hWnd);
             if (hMenu) CheckMenuItem(hMenu, IDM_REDACT,
                 MF_BYCOMMAND | (g_redactMode ? MF_CHECKED : MF_UNCHECKED));
@@ -11601,8 +11660,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         // Redact 드래그 업데이트
         if (g_isDraggingRedact)
         {
-            g_redactDragCurX = x;
-            g_redactDragCurY = y;
+            // 시작한 페이지 밖으로 넘어가지 않게
+            RECT crR; GetClientRect(hWnd, &crR);
+            const RECT pr = PageScreenRect(g_redactDragPage, GetViewportRect(crR));
+            g_redactDragCurX = std::clamp(x, (int)pr.left, (int)pr.right);
+            g_redactDragCurY = std::clamp(y, (int)pr.top, (int)pr.bottom);
             InvalidateRect(hWnd, nullptr, FALSE);
             break;
         }
@@ -12435,7 +12497,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 RECT cr; GetClientRect(hWnd, &cr);
                 if (pt.y < cr.bottom - STATUSBAR_HEIGHT)
                 {
-                    SetCursor(LoadCursor(nullptr, IDC_CROSS));
+                    const RECT vpC = GetViewportRect(cr);
+                    LPCWSTR cur = IDC_CROSS;
+                    if (g_selectedRedact >= 0 && g_selectedRedact < (int)g_redacts.size())
+                    {
+                        const RECT del = RedactDeleteBtnRect(RedactScreenRect(g_redacts[g_selectedRedact], vpC));
+                        if (PtInRect(&del, pt)) cur = IDC_HAND;
+                    }
+                    if (cur == IDC_CROSS && HitTestRedact(pt.x, pt.y, vpC) >= 0) cur = IDC_ARROW;
+                    SetCursor(LoadCursor(nullptr, cur));
                     return TRUE;
                 }
             }
@@ -12656,34 +12726,40 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             RECT cr0; GetClientRect(hWnd, &cr0);
             if (y >= GetBelowToolbarY())
             {
-                // 기존 redact 박스 선택 확인
                 const RECT vp0 = GetViewportRect(cr0);
-                g_selectedRedact = -1;
-                for (int ri = (int)g_redacts.size() - 1; ri >= 0; ri--)
+                const POINT pt0 = { x, y };
+                // 선택한 상자의 ✕ 버튼 → 삭제
+                if (g_selectedRedact >= 0 && g_selectedRedact < (int)g_redacts.size())
                 {
-                    const auto& rd = g_redacts[ri];
-                    int pgL, pgT;
-                    GetPageScreenPos(rd.pageIndex, vp0, &pgL, &pgT);
-                    double pageW = g_pageLayouts[rd.pageIndex].pdfW;
-                    double pageH = g_pageLayouts[rd.pageIndex].pdfH;
-                    int sx1, sy1, sx2, sy2;
-                    PdfToScreen(rd.pdfX,           rd.pdfY,           pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sx1, &sy1);
-                    PdfToScreen(rd.pdfX + rd.pdfW, rd.pdfY - rd.pdfH, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(rd.pageIndex), &sx2, &sy2);
-                    // 클릭 감지 영역을 4픽셀 넉넉하게 확장
-                    RECT rr = { std::min(sx1,sx2) - 4, std::min(sy1,sy2) - 4,
-                                std::max(sx1,sx2) + 4, std::max(sy1,sy2) + 4 };
-                    POINT pt0 = { x, y };
-                    if (PtInRect(&rr, pt0)) { g_selectedRedact = ri; SetFocus(hWnd); break; }
+                    const RECT del = RedactDeleteBtnRect(RedactScreenRect(g_redacts[g_selectedRedact], vp0));
+                    if (PtInRect(&del, pt0))
+                    {
+                        g_redacts.erase(g_redacts.begin() + g_selectedRedact);
+                        g_selectedRedact = -1;
+                        g_dirty = true;
+                        InvalidateRect(hWnd, nullptr, FALSE);
+                        break;
+                    }
                 }
-                if (g_selectedRedact < 0)
+                // 기존 상자 선택
+                g_selectedRedact = HitTestRedact(x, y, vp0);
+                if (g_selectedRedact >= 0)
+                    SetFocus(hWnd);
+                else
                 {
-                    // 새 영역 드래그 시작
-                    g_isDraggingRedact  = true;
-                    g_redactDragStartX  = x;
-                    g_redactDragStartY  = y;
-                    g_redactDragCurX    = x;
-                    g_redactDragCurY    = y;
-                    SetCapture(hWnd);
+                    // 새 영역: 마우스 아래 페이지에서 시작 (페이지 밖이면 무시)
+                    double px0, py0;
+                    const int pg = HitTestPageAtPoint(x, y, vp0, &px0, &py0);
+                    if (pg >= 0)
+                    {
+                        g_isDraggingRedact  = true;
+                        g_redactDragPage    = pg;
+                        g_redactDragStartX  = x;
+                        g_redactDragStartY  = y;
+                        g_redactDragCurX    = x;
+                        g_redactDragCurY    = y;
+                        SetCapture(hWnd);
+                    }
                 }
                 InvalidateRect(hWnd, nullptr, FALSE);
                 break;
@@ -13347,29 +13423,38 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             g_isDraggingRedact = false;
             ReleaseCapture();
-            int x1 = std::min(g_redactDragStartX, xUp);
-            int y1 = std::min(g_redactDragStartY, yUp);
-            int x2 = std::max(g_redactDragStartX, xUp);
-            int y2 = std::max(g_redactDragStartY, yUp);
-            if (x2 - x1 > 4 && y2 - y1 > 4 && g_pdfPage)
+            const int pg = g_redactDragPage;
+            g_redactDragPage = -1;
+            RECT cr0; GetClientRect(hWnd, &cr0);
+            const RECT vp0 = GetViewportRect(cr0);
+            const RECT pr = (pg >= 0 && pg < g_pageCount) ? PageScreenRect(pg, vp0) : RECT{};
+            // 페이지 안으로 제한
+            const int ux = std::clamp(xUp, (int)pr.left, (int)pr.right);
+            const int uy = std::clamp(yUp, (int)pr.top, (int)pr.bottom);
+            int x1 = std::min(g_redactDragStartX, ux);
+            int y1 = std::min(g_redactDragStartY, uy);
+            int x2 = std::max(g_redactDragStartX, ux);
+            int y2 = std::max(g_redactDragStartY, uy);
+            if (pg >= 0 && pg < g_pageCount && x2 - x1 > 4 && y2 - y1 > 4)
             {
-                RECT cr0; GetClientRect(hWnd, &cr0);
-                const RECT vp0 = GetViewportRect(cr0);
                 int pgL, pgT;
-                GetPageScreenPos(g_currentPage, vp0, &pgL, &pgT);
-                double pageW = g_pageLayouts[g_currentPage].pdfW;
-                double pageH = g_pageLayouts[g_currentPage].pdfH;
+                GetPageScreenPos(pg, vp0, &pgL, &pgT);
+                double pageW = g_pageLayouts[pg].pdfW;
+                double pageH = g_pageLayouts[pg].pdfH;
                 double pdfX1, pdfY1, pdfX2, pdfY2;
-                ScreenToPdf(x1, y1, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(g_currentPage), &pdfX1, &pdfY1);
-                ScreenToPdf(x2, y2, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(g_currentPage), &pdfX2, &pdfY2);
+                ScreenToPdf(x1, y1, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(pg), &pdfX1, &pdfY1);
+                ScreenToPdf(x2, y2, pageW, pageH, pgL, pgT, g_zoom, GetEffectiveRotation(pg), &pdfX2, &pdfY2);
                 RedactItem rd;
-                rd.pageIndex = g_currentPage;
+                rd.pageIndex = pg;
                 rd.pdfX = std::min(pdfX1, pdfX2);
                 rd.pdfY = std::max(pdfY1, pdfY2);
                 rd.pdfW = std::abs(pdfX2 - pdfX1);
                 rd.pdfH = std::abs(pdfY1 - pdfY2);
                 if (rd.pdfW > 0 && rd.pdfH > 0)
+                {
                     g_redacts.push_back(rd);
+                    g_dirty = true;
+                }
             }
             InvalidateRect(hWnd, nullptr, FALSE);
             break;
@@ -13730,6 +13815,31 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         // 텍스트 편집 모드: 상자 위 우클릭 → 편집/삭제/되돌리기
         if (TextEdit::OnContextMenu(hWnd, mx, my, ptScreen))
             return 0;
+
+        // 가리기 상자 위 우클릭 → 삭제
+        if (g_pdfDoc && !g_redacts.empty())
+        {
+            RECT crR; GetClientRect(hWnd, &crR);
+            const int ri = HitTestRedact(mx, my, GetViewportRect(crR));
+            if (ri >= 0)
+            {
+                g_selectedRedact = ri;
+                InvalidateRect(hWnd, nullptr, FALSE);
+                HMENU hR = CreatePopupMenu();
+                if (!hR) return 0;
+                AppendMenuW(hR, MF_STRING, 1, LS(STR_CTX_REDACT_DEL));
+                const int rc = TrackPopupMenu(hR, TPM_RETURNCMD | TPM_RIGHTBUTTON, ptScreen.x, ptScreen.y, 0, hWnd, nullptr);
+                DestroyMenu(hR);
+                if (rc == 1 && ri < (int)g_redacts.size())
+                {
+                    g_redacts.erase(g_redacts.begin() + ri);
+                    g_dirty = true;
+                }
+                g_selectedRedact = -1;
+                InvalidateRect(hWnd, nullptr, FALSE);
+                return 0;
+            }
+        }
 
         {
             RECT crTh; GetClientRect(hWnd, &crTh);
@@ -14743,10 +14853,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             if (g_redactMode)
             {
+                if (g_isDraggingRedact) ReleaseCapture();
                 g_redactMode = false;
                 g_isDraggingRedact = false;
+                g_redactDragPage = -1;
                 g_selectedRedact = -1;
-                if (g_isDraggingRedact) ReleaseCapture();
                 CheckMenuItem(GetMenu(hWnd), IDM_REDACT,
                     MF_BYCOMMAND | MF_UNCHECKED);
                 SetCursor(LoadCursor(nullptr, IDC_ARROW));
@@ -14786,6 +14897,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             {
                 g_redacts.erase(g_redacts.begin() + g_selectedRedact);
                 g_selectedRedact = -1;
+                g_dirty = true;
                 InvalidateRect(hWnd, nullptr, FALSE);
                 break;
             }
