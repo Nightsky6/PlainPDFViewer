@@ -13625,6 +13625,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int mx = GET_X_LPARAM(lParam);
         int my = GET_Y_LPARAM(lParam);
 
+        // 툴바·하단 상태바 버튼: 빠르게 두 번 누르면 두 번째 클릭이 더블클릭으로 와서
+        // 무시되던 문제 → 일반 클릭으로 처리 (예: 다음 페이지를 연달아 누를 때)
+        {
+            RECT crb; GetClientRect(hWnd, &crb);
+            const bool onToolbar   = !g_fullscreen && my >= 0 && my < TOOLBAR_HEIGHT;
+            const bool onStatusBar = !g_fullscreen && my >= crb.bottom - STATUSBAR_HEIGHT && my < crb.bottom;
+            if (onToolbar || onStatusBar)
+                return SendMessageW(hWnd, WM_LBUTTONDOWN, wParam, lParam);
+        }
+
         // 그룹 패널 위 더블클릭: 두 번째 클릭으로 취급 (페이지 단어 선택 등 방지)
         {
             RECT crg; GetClientRect(hWnd, &crg);
