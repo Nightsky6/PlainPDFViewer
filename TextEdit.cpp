@@ -11,6 +11,9 @@
 //            그 밖의 글자가 있으면 맑은 고딕
 //  - 사용자가 고른 글꼴: 그 글꼴. 단, 입력한 글자 중 그 글꼴에 없는 글자가 있으면 맑은 고딕
 //  - 넣는 글꼴은 쓰인 글자만 남긴 서브셋으로 만든다 (CreateFontPackage)
+//  - 단, "자동"이고 굵기를 바꾸지 않았으며 새 글자가 모두 같은 페이지에서 그 글꼴로 이미 쓰인 글자이면
+//    원래 글꼴을 그대로 쓴다 (오타·숫자 고치기, 글자 지우기 등 — 저장 후 주변 글자와 구별되지 않음).
+//    저장할 때 새 오브젝트의 글자를 다시 읽어 똑같이 나오는지 확인하고, 아니면 시스템 글꼴로 넣는다.
 
 #include "framework.h"
 #include "PlainPDFViewer.h"
@@ -58,12 +61,16 @@ namespace
         bool         bold = false;
         std::wstring text;
         std::vector<Deco> decos;             // 이 글자에 딸린 밑줄/취소선
+        int          fontGroup = -1;         // 같은 페이지에서 같은 글꼴을 쓰는 오브젝트 묶음 번호
+        std::wstring fontName;               // 글꼴 이름 (서브셋 접두어 "ABCDEF+" 제외) — 미리보기용
     };
 
     struct PageObjs
     {
         bool                 loaded = false;
         std::vector<TextObj> objs;
+        // 글꼴 묶음마다 이 페이지에서 그 글꼴로 화면에 그려진 글자 (= 그 글꼴에 확실히 있는 글자)
+        std::vector<std::set<wchar_t>> fontChars;
     };
 
     // 사용자가 고른 모양
@@ -85,6 +92,7 @@ namespace
         bool         standard = false; // true = 표준 글꼴 Helvetica (미리보기는 Arial)
         std::wstring face;             // GDI 글꼴 이름
         bool         bold = false;
+        bool         useOriginal = false; // 원래 글꼴을 그대로 쓸 수 있음 (실패하면 위 시스템 글꼴)
     };
 
     struct PendingEdit
@@ -305,6 +313,26 @@ namespace
         return list;
     }
 
+    // PDF 글꼴 이름("SegoeUI-Bold", "MalgunGothic")에 맞는 설치 글꼴 이름("Segoe UI") — 미리보기용. 없으면 빈 문자열
+    std::wstring InstalledFaceFor(const std::wstring& pdfName)
+    {
+        auto norm = [](const std::wstring& s, bool cutStyle) {
+            std::wstring n;
+            for (wchar_t c : s)
+            {
+                if (cutStyle && (c == L'-' || c == L',')) break;   // "-Bold", ",Italic" 같은 꼴 이름은 뺀다
+                if (c == L' ') continue;
+                n.push_back((wchar_t)towlower(c));
+            }
+            return n;
+        };
+        static std::map<std::wstring, std::wstring> byNorm;
+        if (byNorm.empty())
+            for (const auto& f : InstalledFonts()) byNorm.emplace(norm(f, false), f);
+        auto it = byNorm.find(norm(pdfName, true));
+        return it != byNorm.end() ? it->second : std::wstring();
+    }
+
     Resolved Resolve(const std::wstring& text, const EditStyle& st)
     {
         Resolved r;
@@ -348,6 +376,7 @@ namespace
 
         if (tp)
         {
+            std::map<FPDF_FONT, int> fontIds;   // 이 페이지 로드 안에서 같은 글꼴 = 같은 핸들
             std::vector<Deco> lines; // 밑줄/취소선 후보 (가는 가로 선)
             const int n = FPDFPage_CountObjects(page);
             for (int i = 0; i < n; ++i)
@@ -385,7 +414,26 @@ namespace
 
                 o.text = ReadObjText(obj, tp);
                 if (o.text.empty() || IsBlank(o.text)) continue;
-                o.bold = IsBoldFont(FPDFTextObj_GetFont(obj));
+                FPDF_FONT font = FPDFTextObj_GetFont(obj);
+                o.bold = IsBoldFont(font);
+                if (font)
+                {
+                    auto fit = fontIds.find(font);
+                    if (fit == fontIds.end())
+                    {
+                        fit = fontIds.emplace(font, (int)po.fontChars.size()).first;
+                        po.fontChars.emplace_back();
+                    }
+                    o.fontGroup = fit->second;
+                    po.fontChars[o.fontGroup].insert(o.text.begin(), o.text.end());
+                    char name[256] = {};
+                    if (FPDFFont_GetBaseFontName(font, name, sizeof(name)) > 0)
+                    {
+                        const char* nm = name;
+                        if (strlen(name) > 7 && name[6] == '+') nm = name + 7;   // 서브셋 접두어
+                        o.fontName.assign(nm, nm + strlen(nm));
+                    }
+                }
 
                 unsigned int R = 0, G = 0, B = 0, A = 255;
                 if (FPDFPageObj_GetFillColor(obj, &R, &G, &B, &A))
@@ -497,7 +545,15 @@ namespace
         }
         if (e && e->text == text && SameStyle(e->style, style)) return;
 
-        const Resolved res = Resolve(text, style);
+        Resolved res = Resolve(text, style);
+        // 자동 글꼴 + 굵기 그대로 + 새 글자가 모두 이 페이지에서 그 글꼴로 이미 쓰인 글자 → 원래 글꼴
+        if (style.face.empty() && style.bold == o.bold && !text.empty()
+            && page >= 0 && page < (int)ds.pages.size() && o.fontGroup >= 0
+            && o.fontGroup < (int)ds.pages[page].fontChars.size())
+        {
+            const auto& have = ds.pages[page].fontChars[o.fontGroup];
+            res.useOriginal = std::all_of(text.begin(), text.end(), [&](wchar_t c) { return have.count(c) != 0; });
+        }
         if (e) { e->text = text; e->style = style; e->res = res; }
         else ds.edits.push_back({ page, o.objIndex, o.text, text, style, res, o.decos });
         g_dirty = true;
@@ -562,9 +618,17 @@ namespace
         // 화면 회전(시계 방향 90° 단위)에 맞춰 글자 방향을 돌린다 (lfEscapement는 반시계 방향)
         const int esc = ((4 - g.rot) % 4) * 900;
         const double emPx = std::max(1.0, (double)EffSizePt(o, e.style) * g_zoom);
-        HFONT font = CreateFontW(-(int)std::lround(emPx), 0, esc, esc, e.res.bold ? FW_BOLD : FW_NORMAL,
+        std::wstring face = e.res.face;
+        bool bold = e.res.bold;
+        if (e.res.useOriginal)
+        {
+            bold = o.bold;
+            const std::wstring inst = InstalledFaceFor(o.fontName);
+            if (!inst.empty()) face = inst;
+        }
+        HFONT font = CreateFontW(-(int)std::lround(emPx), 0, esc, esc, bold ? FW_BOLD : FW_NORMAL,
             FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
-            CLIP_DEFAULT_PRECIS | CLIP_LH_ANGLES, ANTIALIASED_QUALITY, 0, e.res.face.c_str());
+            CLIP_DEFAULT_PRECIS | CLIP_LH_ANGLES, ANTIALIASED_QUALITY, 0, face.c_str());
         HFONT oldFont = (HFONT)SelectObject(hdc, font);
 
         double ox, oy;
@@ -1602,9 +1666,14 @@ namespace TextEdit
 
         std::lock_guard<std::mutex> lk(g_pdfiumMtx);
         s_fontKeepAlive.clear(); // 이전 저장의 문서는 이미 닫혔다
+        // 시스템 글꼴은 실제로 쓸 때 한 번만 불러온다
+        // (원래 글꼴로 넣는 편집만 있으면 쓰지 않는 글꼴을 파일에 넣지 않도록)
         std::map<FontKey, FPDF_FONT> fonts;
-        for (const auto& [key, chars] : need)
+        auto systemFont = [&](const FontKey& key) -> FPDF_FONT
         {
+            auto it = fonts.find(key);
+            if (it != fonts.end()) return it->second;
+            const std::set<wchar_t>& chars = need[key];
             FPDF_FONT f = key.standard
                 ? FPDFText_LoadStandardFont(doc, key.bold ? "Helvetica-Bold" : "Helvetica")
                 : LoadSystemFont(doc, key.face, key.bold, chars);
@@ -1612,7 +1681,8 @@ namespace TextEdit
             if (!f && (key.standard || key.face != kFallbackFace))
                 f = LoadSystemFont(doc, kFallbackFace, key.bold, chars);
             fonts[key] = f;
-        }
+            return f;
+        };
 
         std::map<int, std::vector<const PendingEdit*>> byPage;
         for (const auto& e : edits) byPage[e.page].push_back(&e);
@@ -1679,9 +1749,6 @@ namespace TextEdit
                 if (!text.empty())
                 {
                     const Resolved& res = j.e->res;
-                    auto fit = fonts.find({ res.standard, res.standard ? L"" : res.face, res.bold });
-                    FPDF_FONT font = (fit != fonts.end()) ? fit->second : nullptr;
-                    if (!font) continue; // 글꼴이 없으면 원래 글자를 그대로 둔다
 
                     FS_MATRIX m{};
                     float fontSize = 0;
@@ -1693,14 +1760,48 @@ namespace TextEdit
                     if (j.e->style.size > 0 && m.d > 0)
                         fontSize = j.e->style.size / m.d;
 
-                    FPDF_PAGEOBJECT n = FPDFPageObj_CreateTextObj(doc, font, fontSize);
-                    if (!n) continue;
-                    FPDFText_SetText(n, reinterpret_cast<FPDF_WIDESTRING>(text.c_str()));
-                    FPDFPageObj_SetFillColor(n, R, G, B, A);
-                    FPDFPageObj_SetMatrix(n, &m);
+                    auto makeObj = [&](FPDF_FONT f) -> FPDF_PAGEOBJECT {
+                        FPDF_PAGEOBJECT o = f ? FPDFPageObj_CreateTextObj(doc, f, fontSize) : nullptr;
+                        if (!o) return nullptr;
+                        FPDFText_SetText(o, reinterpret_cast<FPDF_WIDESTRING>(text.c_str()));
+                        FPDFPageObj_SetFillColor(o, R, G, B, A);
+                        FPDFPageObj_SetMatrix(o, &m);
+                        return o;
+                    };
+
+                    FPDF_PAGEOBJECT n = nullptr;
+                    // 1) 원래 글꼴: 넣은 뒤 글자를 다시 읽어 똑같이 나오면 사용
+                    //    (글자 → 글꼴 코드 변환이 맞는지 확인. 맞으면 화면에 이미 그려진 그 글리프가 쓰인다)
+                    if (res.useOriginal)
+                    {
+                        if (FPDF_FONT orig = FPDFTextObj_GetFont(j.obj))
+                            n = makeObj(orig);
+                        if (n)
+                        {
+                            insertAt(n, j.obj);
+                            bool same = false;
+                            if (FPDF_TEXTPAGE vtp = FPDFText_LoadPage(pg))
+                            {
+                                same = ReadObjText(n, vtp) == text;
+                                FPDFText_ClosePage(vtp);
+                            }
+                            if (!same)
+                            {
+                                FPDFPage_RemoveObject(pg, n);
+                                FPDFPageObj_Destroy(n);
+                                n = nullptr;
+                            }
+                        }
+                    }
+                    // 2) 시스템 글꼴 (예전 방식)
+                    if (!n)
+                    {
+                        n = makeObj(systemFont({ res.standard, res.standard ? L"" : res.face, res.bold }));
+                        if (!n) continue; // 글꼴이 없으면 원래 글자를 그대로 둔다
+                        insertAt(n, j.obj);
+                    }
                     float nl, nb, nt;
                     if (!FPDFPageObj_GetBounds(n, &nl, &nb, &newRight, &nt)) newRight = m.e;
-                    insertAt(n, j.obj);
                 }
 
                 // 밑줄/취소선: 같은 높이·색으로 새 글자 길이에 맞춘 선을 넣고 원래 선은 지운다
