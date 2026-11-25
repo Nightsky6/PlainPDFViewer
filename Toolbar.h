@@ -66,6 +66,10 @@ RECT GetFindToolbarBtnRect(const RECT& clientRect);
 RECT GetQuickJumpToolbarBtnRect(const RECT& clientRect);
 RECT GetSpotlightToolbarBtnRect(const RECT& clientRect);
 RECT GetLaserPointerToolbarBtnRect(const RECT& clientRect);
+// 창이 좁아 왼쪽 버튼 일부를 숨겼을 때의 » 버튼 (없으면 빈 사각형). 마우스 hover 번호 9993
+RECT GetToolbarOverflowBtnRect(const RECT& clientRect);
+void ShowToolbarOverflowMenu(HWND hWnd);
+bool IsFindToolbarBtnCompact(const RECT& clientRect);
 RECT GetStatusPrevBtnRect(const RECT& clientRect);
 RECT GetStatusNextBtnRect(const RECT& clientRect);
 RECT GetStatusFirstBtnRect(const RECT& clientRect);

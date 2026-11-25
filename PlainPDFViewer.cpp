@@ -870,46 +870,11 @@ static void DrawLoadingOverlay(HDC hdc, const RECT& clientRect)
     const float cx = cw / 2.0f;
     const float cy = ch / 2.0f;
 
-    // PDF 문서 아이콘 (단순 사각형)
-    const float iconW = 38.0f, iconH = 48.0f;
-    const float iconX = cx - iconW / 2.0f;
-    const float iconY = cy - 44.0f;
-    const float fold  = 10.0f; // 접힌 모서리 크기
-
-    // 아이콘 본체
-    Gdiplus::GraphicsPath iconPath;
-    iconPath.AddLine(iconX + fold, iconY, iconX + iconW, iconY);
-    iconPath.AddLine(iconX + iconW, iconY, iconX + iconW, iconY + iconH);
-    iconPath.AddLine(iconX + iconW, iconY + iconH, iconX, iconY + iconH);
-    iconPath.AddLine(iconX, iconY + iconH, iconX, iconY + fold);
-    iconPath.CloseFigure();
-    Gdiplus::SolidBrush iconBg(Gdiplus::Color(255, 255, 255, 255));
-    Gdiplus::Pen iconBorder(Gdiplus::Color(255, 180, 190, 205), 1.5f);
-    g.FillPath(&iconBg, &iconPath);
-    g.DrawPath(&iconBorder, &iconPath);
-
-    // 접힌 모서리
-    Gdiplus::GraphicsPath foldPath;
-    foldPath.AddLine(iconX, iconY + fold, iconX + fold, iconY + fold);
-    foldPath.AddLine(iconX + fold, iconY + fold, iconX + fold, iconY);
-    Gdiplus::SolidBrush foldBrush(Gdiplus::Color(255, 210, 218, 228));
-    g.FillPath(&foldBrush, &foldPath);
-    Gdiplus::Pen foldPen(Gdiplus::Color(255, 180, 190, 205), 1.5f);
-    g.DrawPath(&foldPen, &foldPath);
-
-    // 아이콘 안 줄 (문서 느낌)
-    Gdiplus::Pen linePen(Gdiplus::Color(255, 200, 210, 225), 1.5f);
-    for (int li = 0; li < 3; ++li)
-    {
-        float ly = iconY + 18.0f + li * 8.0f;
-        g.DrawLine(&linePen, iconX + 8.0f, ly, iconX + iconW - 8.0f, ly);
-    }
-
-    // 회전 스피너
+    // 회전 스피너 (스피너 + 아래 글자 묶음이 화면 가운데에 오도록)
     const float spinR     = 16.0f;  // 스피너 원 반지름
     const float dotR      = 3.2f;   // 각 점의 반지름
     const float spinCx    = cx;
-    const float spinCy    = iconY + iconH + 30.0f;
+    const float spinCy    = cy - 17.0f;
     const int   totalDots = 8;
     const int   activeDot = g_loadingFrame % totalDots;
 
@@ -1029,6 +994,8 @@ static int g_activeTab = -1;
 static int g_tabHover = -1;
 static int g_tabCloseHover = -1;  // 닫기 버튼 hover 중인 탭
 static bool g_tabPlusHover = false; // '+' 버튼 hover
+static bool g_tabListHover = false; // 탭 목록(∨) 버튼 hover
+static int  g_tabFirst = 0;         // 탭이 넘칠 때 맨 왼쪽에 보이는 탭
 
 // ─── 프리패치 헬퍼 ──────────────────────────────────────────────────────────
 // 단일 페이지를 워커 큐에 등록 (캐시가 이미 유효하거나 이미 등록됐으면 건너뜀)
@@ -2460,30 +2427,118 @@ static int AddNewTab(HWND hWnd)
     return g_activeTab;
 }
 
-static RECT GetTabRect(int tabIndex, const RECT& clientRect)
+// ── 탭 배치: 창이 좁으면 탭이 함께 좁아지고(최소 TAB_MIN_WIDTH),
+//    그래도 넘치면 일부만 보이고 오른쪽 끝의 ∨ 버튼으로 전체 목록을 엶 ──
+#define TAB_MIN_WIDTH  96
+#define TAB_PLUS_W     30
+#define TAB_LIST_W     30
+
+struct TabLayout
 {
-    int y = TOOLBAR_HEIGHT;
-    int x = tabIndex * TAB_WIDTH;
-    // '+' 버튼은 마지막 탭 뒤에
-    return { x, y, x + TAB_WIDTH, y + TAB_BAR_HEIGHT };
+    int  tabW  = TAB_WIDTH;
+    int  first = 0;        // 보이는 첫 탭
+    int  count = 0;        // 보이는 탭 수
+    bool overflow = false; // 숨은 탭이 있어 ∨ 버튼을 보여 줌
+    int  plusX = 0;        // '+' 버튼 왼쪽
+    RECT listRc = {};      // ∨ 버튼
+};
+
+static TabLayout ComputeTabLayout()
+{
+    TabLayout L;
+    const int n = (int)g_tabs.size();
+    RECT cr = {};
+    if (g_hMainWnd) GetClientRect(g_hMainWnd, &cr);
+    const int barW = std::max(0, (int)(cr.right - cr.left));
+    if (n <= 0) return L;
+
+    int avail = barW - TAB_PLUS_W;
+    if (n * TAB_MIN_WIDTH <= avail)
+    {
+        // 모두 들어감: 남는 너비를 나눠 갖되 기본 너비보다 넓어지지는 않음
+        L.first = 0; L.count = n;
+        L.tabW = std::clamp(avail / n, TAB_MIN_WIDTH, TAB_WIDTH);
+    }
+    else
+    {
+        // 넘침: ∨ 버튼 자리를 빼고 최소 너비로 들어가는 만큼만 보임
+        L.overflow = true;
+        avail -= TAB_LIST_W;
+        L.count = std::clamp(avail / TAB_MIN_WIDTH, 1, n);
+        L.tabW  = std::clamp(avail / L.count, TAB_MIN_WIDTH, TAB_WIDTH);
+        // 선택된 탭은 항상 보이게
+        int f = g_tabFirst;
+        if (g_activeTab >= 0)
+        {
+            if (g_activeTab < f) f = g_activeTab;
+            if (g_activeTab >= f + L.count) f = g_activeTab - L.count + 1;
+        }
+        L.first = std::clamp(f, 0, n - L.count);
+        g_tabFirst = L.first;
+    }
+    L.plusX = L.count * L.tabW;
+    const int y = TOOLBAR_HEIGHT;
+    if (L.overflow)
+        L.listRc = { barW - TAB_LIST_W, y, barW, y + TAB_BAR_HEIGHT };
+    return L;
 }
 
+static RECT GetTabRect(int tabIndex, const RECT& /*clientRect*/)
+{
+    const TabLayout L = ComputeTabLayout();
+    int y = TOOLBAR_HEIGHT;
+    int x = (tabIndex - L.first) * L.tabW;
+    return { x, y, x + L.tabW, y + TAB_BAR_HEIGHT };
+}
+
+// ∨ 버튼: 열린 문서 전체를 메뉴로 보여 주고 고른 탭으로 전환
+static void ShowTabListMenu(HWND hWnd)
+{
+    const TabLayout L = ComputeTabLayout();
+    HMENU hm = CreatePopupMenu();
+    for (int i = 0; i < (int)g_tabs.size(); ++i)
+    {
+        std::wstring t = GetTabTitle(g_tabs[i]);
+        if (t.length() > 60) t = t.substr(0, 58) + L"..";
+        std::wstring esc;
+        for (wchar_t c : t) { esc += c; if (c == L'&') esc += L'&'; }   // & 그대로 보이게
+        UINT fl = MF_STRING | (i == g_activeTab ? MF_CHECKED : 0);
+        AppendMenuW(hm, fl, (UINT_PTR)(i + 1), esc.c_str());
+    }
+    POINT pt = { L.listRc.right, L.listRc.bottom };
+    ClientToScreen(hWnd, &pt);
+    const int cmd = (int)TrackPopupMenu(hm, TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_NONOTIFY,
+                                        pt.x, pt.y, 0, hWnd, nullptr);
+    DestroyMenu(hm);
+    g_tabListHover = false;
+    if (cmd >= 1 && cmd <= (int)g_tabs.size() && cmd - 1 != g_activeTab)
+        SwitchToTab(hWnd, cmd - 1);
+    InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+// 반환: 탭 번호, -1 없음, -2 '+' 버튼, -3 ∨ 탭 목록 버튼
 static int HitTestTabBar(int x, int y, bool* closeBtn)
 {
     if (closeBtn) *closeBtn = false;
     if (g_tabs.empty()) return -1;
     if (y < TOOLBAR_HEIGHT || y >= TOOLBAR_HEIGHT + TAB_BAR_HEIGHT) return -1;
 
+    const TabLayout L = ComputeTabLayout();
+    if (L.overflow && x >= L.listRc.left && x < L.listRc.right)
+        return -3;  // 탭 목록 버튼
+
     // '+' 새 탭 버튼
-    int plusX = (int)g_tabs.size() * TAB_WIDTH;
-    if (x >= plusX && x < plusX + 30)
+    if (x >= L.plusX && x < L.plusX + TAB_PLUS_W)
         return -2;  // 새 탭 버튼
 
-    int tabIdx = x / TAB_WIDTH;
+    if (x < 0) return -1;
+    const int slot = x / L.tabW;
+    if (slot >= L.count) return -1;
+    const int tabIdx = L.first + slot;
     if (tabIdx < 0 || tabIdx >= (int)g_tabs.size()) return -1;
 
     // 닫기 버튼 영역 (탭 오른쪽 끝)
-    int closeLeft = (tabIdx + 1) * TAB_WIDTH - TAB_CLOSE_SIZE - 6;
+    int closeLeft = (slot + 1) * L.tabW - TAB_CLOSE_SIZE - 6;
     int closeTop = TOOLBAR_HEIGHT + (TAB_BAR_HEIGHT - TAB_CLOSE_SIZE) / 2;
     if (x >= closeLeft && x < closeLeft + TAB_CLOSE_SIZE &&
         y >= closeTop && y < closeTop + TAB_CLOSE_SIZE)
@@ -2519,10 +2574,12 @@ static void DrawTabBar(HDC hdc, const RECT& clientRect)
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, hFont));
     SetBkMode(hdc, TRANSPARENT);
 
-    for (int i = 0; i < (int)g_tabs.size(); i++)
+    const TabLayout L = ComputeTabLayout();
+    const int TW = L.tabW;
+    for (int i = L.first; i < L.first + L.count; i++)
     {
-        int tx = i * TAB_WIDTH;
-        RECT tr = { tx, y, tx + TAB_WIDTH, y + TAB_BAR_HEIGHT };
+        int tx = (i - L.first) * TW;
+        RECT tr = { tx, y, tx + TW, y + TAB_BAR_HEIGHT };
         bool active = (i == g_activeTab);
         bool hover = (i == g_tabHover);
 
@@ -2537,7 +2594,7 @@ static void DrawTabBar(HDC hdc, const RECT& clientRect)
         // 활성 탭 상단 액센트
         if (active)
         {
-            RECT accent = { tx + 1, y, tx + TAB_WIDTH - 1, y + 2 };
+            RECT accent = { tx + 1, y, tx + TW - 1, y + 2 };
             HBRUSH acBr = CreateSolidBrush(RGB(0, 103, 192));
             FillRect(hdc, &accent, acBr);
             DeleteObject(acBr);
@@ -2548,8 +2605,8 @@ static void DrawTabBar(HDC hdc, const RECT& clientRect)
         {
             HPEN sepPen = CreatePen(PS_SOLID, 1, RGB(210, 211, 222));
             HPEN prevPen = static_cast<HPEN>(SelectObject(hdc, sepPen));
-            MoveToEx(hdc, tx + TAB_WIDTH - 1, y + 4, nullptr);
-            LineTo(hdc, tx + TAB_WIDTH - 1, y + TAB_BAR_HEIGHT - 4);
+            MoveToEx(hdc, tx + TW - 1, y + 4, nullptr);
+            LineTo(hdc, tx + TW - 1, y + TAB_BAR_HEIGHT - 4);
             SelectObject(hdc, prevPen);
             DeleteObject(sepPen);
         }
@@ -2557,12 +2614,12 @@ static void DrawTabBar(HDC hdc, const RECT& clientRect)
         // 제목 텍스트 (닫기 버튼 영역 제외)
         std::wstring title = GetTabTitle(g_tabs[i]);
         if (title.length() > 18) title = title.substr(0, 16) + L"..";
-        RECT textRc = { tx + 8, y, tx + TAB_WIDTH - TAB_CLOSE_SIZE - 10, y + TAB_BAR_HEIGHT };
+        RECT textRc = { tx + 8, y, tx + TW - TAB_CLOSE_SIZE - 10, y + TAB_BAR_HEIGHT };
         SetTextColor(hdc, active ? RGB(20, 20, 30) : RGB(90, 92, 108));
         DrawTextW(hdc, title.c_str(), -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
         // 닫기 버튼 (×) - GDI+로 둥근 호버 효과
-        int closeLeft = tx + TAB_WIDTH - TAB_CLOSE_SIZE - 6;
+        int closeLeft = tx + TW - TAB_CLOSE_SIZE - 6;
         int closeTop = y + (TAB_BAR_HEIGHT - TAB_CLOSE_SIZE) / 2;
         RECT closeBtnRc = { closeLeft, closeTop, closeLeft + TAB_CLOSE_SIZE, closeTop + TAB_CLOSE_SIZE };
 
@@ -2602,7 +2659,7 @@ static void DrawTabBar(HDC hdc, const RECT& clientRect)
     }
 
     // '+' 새 탭 버튼 — 정방형 rect로 원형 배경, DrawLine으로 정확히 중앙 정렬
-    int plusX = (int)g_tabs.size() * TAB_WIDTH;
+    int plusX = L.plusX;
     const int plusSz = TAB_BAR_HEIGHT - 8;  // 22px (정방형)
     int plusTop  = y + (TAB_BAR_HEIGHT - plusSz) / 2;
     RECT plusRc = { plusX + 4, plusTop, plusX + 4 + plusSz, plusTop + plusSz };
@@ -2623,6 +2680,39 @@ static void DrawTabBar(HDC hdc, const RECT& clientRect)
         const float hs = 4.0f;
         gx.DrawLine(&pen, cx - hs, cy,        cx + hs, cy);        // 수평
         gx.DrawLine(&pen, cx,      cy - hs,   cx,      cy + hs);   // 수직
+    }
+
+    // ∨ 탭 목록 버튼 (숨은 탭이 있을 때만, 탭 줄 오른쪽 끝)
+    if (L.overflow)
+    {
+        const RECT lr = L.listRc;
+        // 뒤에 탭이 지나가지 않도록 배경을 먼저 채움 + 왼쪽 구분선
+        HBRUSH lbBr = CreateSolidBrush(RGB(229, 230, 238));
+        RECT lbRc = { lr.left, lr.top, lr.right, lr.bottom - 1 };
+        FillRect(hdc, &lbRc, lbBr);
+        DeleteObject(lbBr);
+        HPEN sp = CreatePen(PS_SOLID, 1, RGB(210, 211, 222));
+        HPEN op = static_cast<HPEN>(SelectObject(hdc, sp));
+        MoveToEx(hdc, lr.left, y + 4, nullptr);
+        LineTo(hdc, lr.left, y + TAB_BAR_HEIGHT - 4);
+        SelectObject(hdc, op);
+        DeleteObject(sp);
+
+        Gdiplus::Graphics gx(hdc);
+        gx.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        const float bs = (float)plusSz;
+        const float bx = (lr.left + lr.right - bs) * 0.5f, by = (float)plusTop;
+        if (g_tabListHover)
+        {
+            Gdiplus::SolidBrush hBr(Gdiplus::Color(55, 30, 30, 80));
+            gx.FillEllipse(&hBr, bx, by, bs, bs);
+        }
+        Gdiplus::Pen pen(Gdiplus::Color(255, 90, 95, 115), 1.5f);
+        pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+        pen.SetLineJoin(Gdiplus::LineJoinRound);
+        const float cx = bx + bs * 0.5f, cy = by + bs * 0.5f + 1.0f;
+        Gdiplus::PointF chev[3] = { { cx - 4.0f, cy - 2.0f }, { cx, cy + 2.0f }, { cx + 4.0f, cy - 2.0f } };
+        gx.DrawLines(&pen, chev, 3);
     }
 
     SelectObject(hdc, oldFont);
@@ -3753,6 +3843,51 @@ static HPEN CreateSelectionPen(COLORREF color)
     return pen ? pen : CreatePen(PS_DOT, 1, color);
 }
 
+// 형광펜처럼 "곱하기"로 칠함: 흰 바탕은 지정한 색 그대로(선명한 노랑), 검은 글자는 검게 남음.
+// (반투명으로 덮으면 흰 바탕에서 옅은 노랑이 됨 — 수마트라·Acrobat도 곱하기 방식)
+// GDI에는 곱하기 합성이 없어 해당 영역만 DIB로 복사해 픽셀을 계산한 뒤 되돌려 놓음
+static void MultiplyFillRect(HDC hdc, int x, int y, int w, int h, COLORREF color)
+{
+    if (w <= 0 || h <= 0) return;
+    static HDC     s_dc   = nullptr;
+    static HBITMAP s_bmp  = nullptr, s_old = nullptr;
+    static BYTE*   s_bits = nullptr;
+    static int     s_w = 0, s_h = 0;
+    if (!s_dc || w > s_w || h > s_h)
+    {
+        if (s_dc) { SelectObject(s_dc, s_old); DeleteObject(s_bmp); DeleteDC(s_dc); s_dc = nullptr; }
+        const int nw = std::max(w, s_w), nh = std::max(h, s_h);
+        BITMAPINFO bmi = {};
+        bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+        bmi.bmiHeader.biWidth = nw;
+        bmi.bmiHeader.biHeight = -nh;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HBITMAP bmp = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!bmp) return;
+        s_dc = CreateCompatibleDC(hdc);
+        s_bmp = bmp; s_bits = static_cast<BYTE*>(bits);
+        s_old = static_cast<HBITMAP>(SelectObject(s_dc, s_bmp));
+        s_w = nw; s_h = nh;
+    }
+    BitBlt(s_dc, 0, 0, w, h, hdc, x, y, SRCCOPY);
+    GdiFlush();
+    const unsigned cr = GetRValue(color), cg = GetGValue(color), cb = GetBValue(color);
+    for (int row = 0; row < h; ++row)
+    {
+        BYTE* p = s_bits + (size_t)row * s_w * 4;
+        for (int col = 0; col < w; ++col, p += 4)
+        {
+            p[0] = (BYTE)((p[0] * cb + 127) / 255);
+            p[1] = (BYTE)((p[1] * cg + 127) / 255);
+            p[2] = (BYTE)((p[2] * cr + 127) / 255);
+        }
+    }
+    BitBlt(hdc, x, y, w, h, s_dc, 0, 0, SRCCOPY);
+}
+
 static void DrawHighlights(HDC hdc, const RECT& clientRect)
 {
     if (g_highlights.empty() || !g_pdfDoc || g_pageLayouts.empty()) return;
@@ -3770,7 +3905,9 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
     HBITMAP  hlBmp      = CreateCompatibleBitmap(hdc, 1, 1);
     HBITMAP  hlOldBmp   = static_cast<HBITMAP>(SelectObject(hlMemDC, hlBmp));
     COLORREF hlLastColor = CLR_INVALID;
-    BLENDFUNCTION hlBf   = { AC_SRC_OVER, 0, 100, 0 }; // 수마트라 PDF와 동일한 투명도(~40%)
+    BLENDFUNCTION hlBf   = { AC_SRC_OVER, 0, 100, 0 }; // 야간 모드용 반투명(~40%)
+    std::map<COLORREF, HRGN> colorRgns;   // 색별로 합친 하이라이트 영역
+    std::vector<RECT>        selRings;    // 선택된 하이라이트 테두리
 
     for (int hlIdx = 0; hlIdx < static_cast<int>(g_highlights.size()); ++hlIdx)
     {
@@ -3830,28 +3967,57 @@ static void DrawHighlights(HDC hdc, const RECT& clientRect)
                 int cy2 = std::min(sy2, (int)vp.bottom);
                 if (cx2 <= cx1 || cy2 <= cy1) continue;
 
-                const int bw = cx2 - cx1, bh = cy2 - cy1;
-                if (hl.color != hlLastColor) {
-                    HBRUSH hBr = CreateSolidBrush(hl.color);
-                    RECT fr = { 0, 0, 1, 1 };
-                    FillRect(hlMemDC, &fr, hBr);
-                    DeleteObject(hBr);
-                    hlLastColor = hl.color;
-                }
-                AlphaBlend(hdc, cx1, cy1, bw, bh, hlMemDC, 0, 0, 1, 1, hlBf);
+                // 같은 색끼리 영역을 합쳐 두었다가 한 번에 칠함
+                // → 같은 색 하이라이트가 겹친 곳(또는 줄 사이 여백이 겹친 곳)이 두 번 칠해져 진해지지 않음
+                HRGN rr = CreateRectRgn(cx1, cy1, cx2, cy2);
+                auto it = colorRgns.find(hl.color);
+                if (it == colorRgns.end()) colorRgns.emplace(hl.color, rr);
+                else { CombineRgn(it->second, it->second, rr, RGN_OR); DeleteObject(rr); }
 
-                if (isSelected)
-                {
-                    HPEN selPen = CreateSelectionPen(RGB(40, 120, 255));
-                    HPEN oPen = static_cast<HPEN>(SelectObject(hdc, selPen));
-                    HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
-                    Rectangle(hdc, cx1 - 1, cy1 - 1, cx2 + 1, cy2 + 1);
-                    SelectObject(hdc, oBr);
-                    SelectObject(hdc, oPen);
-                    DeleteObject(selPen);
-                }
+                if (isSelected) selRings.push_back({ cx1 - 1, cy1 - 1, cx2 + 1, cy2 + 1 });
             }
         }
+    }
+
+    // 색별로 합친 영역 칠하기 (겹치지 않는 사각형 목록으로 받아서)
+    for (auto& kv : colorRgns)
+    {
+        const COLORREF color = kv.first;
+        const DWORD sz = GetRegionData(kv.second, 0, nullptr);
+        std::vector<BYTE> buf(sz);
+        RGNDATA* rd = reinterpret_cast<RGNDATA*>(buf.data());
+        if (sz && GetRegionData(kv.second, sz, rd))
+        {
+            const RECT* rs = reinterpret_cast<const RECT*>(rd->Buffer);
+            if (g_darkMode && color != hlLastColor) {
+                HBRUSH hBr = CreateSolidBrush(color);
+                RECT fr = { 0, 0, 1, 1 };
+                FillRect(hlMemDC, &fr, hBr);
+                DeleteObject(hBr);
+                hlLastColor = color;
+            }
+            for (DWORD k = 0; k < rd->rdh.nCount; ++k)
+            {
+                const RECT& q = rs[k];
+                if (g_darkMode)   // 야간 모드(페이지 반전)에서는 곱하기가 어두운 바탕에 묻히므로 반투명
+                    AlphaBlend(hdc, q.left, q.top, q.right - q.left, q.bottom - q.top, hlMemDC, 0, 0, 1, 1, hlBf);
+                else
+                    MultiplyFillRect(hdc, q.left, q.top, q.right - q.left, q.bottom - q.top, color);
+            }
+        }
+        DeleteObject(kv.second);
+    }
+
+    // 선택된 하이라이트 테두리는 칠한 뒤에 (다른 하이라이트에 덮이지 않게)
+    if (!selRings.empty())
+    {
+        HPEN selPen = CreateSelectionPen(RGB(40, 120, 255));
+        HPEN oPen = static_cast<HPEN>(SelectObject(hdc, selPen));
+        HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
+        for (const RECT& q : selRings) Rectangle(hdc, q.left, q.top, q.right, q.bottom);
+        SelectObject(hdc, oBr);
+        SelectObject(hdc, oPen);
+        DeleteObject(selPen);
     }
 
     SelectObject(hlMemDC, hlOldBmp);
@@ -6835,10 +7001,13 @@ void EmbedHighlightAnnotations()
         FPDF_ANNOTATION annot = FPDFPage_CreateAnnot(workPage, annotType);
         if (!annot) continue;
 
-        // alpha=200: 텍스트 가독성을 위해 약간 투명하게 저장
+        // 하이라이트는 불투명(255)으로 저장: 다른 뷰어(Acrobat·수마트라·PDFium)는 하이라이트를
+        // 곱하기로 그리므로 글자가 가려지지 않고, 이 앱 화면과 같은 선명한 색으로 보임.
+        // 밑줄·취소선은 예전처럼 약간 투명(200).
         // annotation 종류는 subtype(FPDF_ANNOT_HIGHLIGHT 등)으로 구분하므로 alpha 태그 불필요.
         FPDFAnnot_SetColor(annot, FPDFANNOT_COLORTYPE_Color,
-            GetRValue(item.color), GetGValue(item.color), GetBValue(item.color), 200);
+            GetRValue(item.color), GetGValue(item.color), GetBValue(item.color),
+            annotType == FPDF_ANNOT_HIGHLIGHT ? 255 : 200);
 
         double allLeft = 1e9, allTop = -1e9, allRight = -1e9, allBottom = 1e9;
         for (size_t ri = 0; ri < rects.size(); ++ri)
@@ -12066,11 +12235,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             int prevHover = g_tabHover;
             int prevClose = g_tabCloseHover;
             bool prevPlus = g_tabPlusHover;
+            bool prevList = g_tabListHover;
             int hit = HitTestTabBar(x, y, &closeBtn);
             g_tabPlusHover = (hit == -2);
+            g_tabListHover = (hit == -3);
             g_tabHover = (hit >= 0) ? hit : -1;
             g_tabCloseHover = closeBtn ? g_tabHover : -1;
-            if (g_tabHover != prevHover || g_tabCloseHover != prevClose || g_tabPlusHover != prevPlus)
+            if (g_tabHover != prevHover || g_tabCloseHover != prevClose || g_tabPlusHover != prevPlus
+                || g_tabListHover != prevList)
                 InvalidateRect(hWnd, nullptr, FALSE);
         }
 
@@ -12183,8 +12355,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             RECT spotBtn   = GetSpotlightToolbarBtnRect(cr_hv);
             RECT laserBtn2 = GetLaserPointerToolbarBtnRect(cr_hv);
             RECT qjBtn     = GetQuickJumpToolbarBtnRect(cr_hv);
+            RECT ovfBtn    = GetToolbarOverflowBtnRect(cr_hv);
             POINT pt_hv = { x, y };
-            int hit = PtInRect(&findBtn, pt_hv) ? 9999
+            int hit = PtInRect(&ovfBtn, pt_hv) ? 9993
+                    : PtInRect(&findBtn, pt_hv) ? 9999
                     : PtInRect(&darkBtn, pt_hv) ? 9998
                     : PtInRect(&lockBtn, pt_hv) ? 9997
                     : PtInRect(&spotBtn, pt_hv) ? 9996
@@ -12218,6 +12392,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                         InvalidateRect(hWnd, &r, FALSE);
                     } else if (idx == 9994) {
                         RECT r = GetQuickJumpToolbarBtnRect(cr_hv);
+                        InflateRect(&r, 2, 2);
+                        InvalidateRect(hWnd, &r, FALSE);
+                    } else if (idx == 9993) {
+                        RECT r = GetToolbarOverflowBtnRect(cr_hv);
                         InflateRect(&r, 2, 2);
                         InvalidateRect(hWnd, &r, FALSE);
                     } else if (idx >= 0 && idx < g_toolbarButtonCount) {
@@ -12295,6 +12473,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             else if (PtInRect(&spotBtn,  pt2)) newTip = LS(STR_TIP_SPOTLIGHT);
             else if (PtInRect(&laserBtn, pt2)) newTip = LS(STR_TIP_LASER);
             else if (PtInRect(&qjBtn,    pt2)) newTip = LS(STR_TIP_QUICKJUMP);
+            else if ([&] { RECT o = GetToolbarOverflowBtnRect(cr_tt); return PtInRect(&o, pt2) != FALSE; }())
+                newTip = LS(STR_TIP_TB_MORE);
             else
             {
                 int idx = HitTestToolbar(x, y);
@@ -12508,6 +12688,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             } else if (g_hoverButton == 9994) {
                 RECT cr; GetClientRect(hWnd, &cr);
                 r = GetQuickJumpToolbarBtnRect(cr);
+            } else if (g_hoverButton == 9993) {
+                RECT cr; GetClientRect(hWnd, &cr);
+                r = GetToolbarOverflowBtnRect(cr);
             } else if (g_hoverButton >= 0 && g_hoverButton < g_toolbarButtonCount) {
                 r = GetToolbarButtonRect(g_hoverButton);
             } else {
@@ -12815,6 +12998,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (PtInRect(&spotBtn,  pt_tb)) { g_toolbarPressedCmd = IDM_SPOTLIGHT;     SetCapture(hWnd); break; }
             if (PtInRect(&laserBtn, pt_tb)) { g_toolbarPressedCmd = IDM_LASER_POINTER; SetCapture(hWnd); break; }
             if (PtInRect(&qjBtn,    pt_tb)) { g_toolbarPressedCmd = IDM_QUICKJUMP;     SetCapture(hWnd); break; }
+            { RECT ovf = GetToolbarOverflowBtnRect(cr_tb); if (PtInRect(&ovf, pt_tb)) { ShowToolbarOverflowMenu(hWnd); break; } }
             int hit = HitTestToolbar(x, y);
             if (hit >= 0 && g_toolbarButtons[hit].commandId != 0)
             {
@@ -13213,6 +13397,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             bool closeBtn = false;
             int tabHit = HitTestTabBar(x, y, &closeBtn);
             if (tabHit == -2) { AddNewTab(hWnd); break; }
+            if (tabHit == -3) { ShowTabListMenu(hWnd); break; }
             if (tabHit >= 0)
             {
                 if (closeBtn)
@@ -13353,6 +13538,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (PtInRect(&spotBtn,  pt_tb)) { g_toolbarPressedCmd = IDM_SPOTLIGHT;     SetCapture(hWnd); break; }
             if (PtInRect(&laserBtn, pt_tb)) { g_toolbarPressedCmd = IDM_LASER_POINTER; SetCapture(hWnd); break; }
             if (PtInRect(&qjBtn,    pt_tb)) { g_toolbarPressedCmd = IDM_QUICKJUMP;     SetCapture(hWnd); break; }
+            { RECT ovf = GetToolbarOverflowBtnRect(cr_tb); if (PtInRect(&ovf, pt_tb)) { ShowToolbarOverflowMenu(hWnd); break; } }
         }
         {
             int hit = HitTestToolbar(x, y);

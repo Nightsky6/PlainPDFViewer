@@ -173,22 +173,93 @@ const wchar_t* GetToolbarTooltip(int index)
 }
 
 // ── 버튼 영역 계산 ────────────────────────────────────────────────────────────
+// 창이 좁아지면: ① 오른쪽 "검색어" 버튼이 아이콘만 남고 ② 그래도 모자라면
+// 왼쪽 버튼 중 오른쪽 끝부터 숨기고 그 자리에 » 버튼을 둬 메뉴로 보여 줌
+extern HWND g_hMainWnd;
+
+static const int FIND_BTN_FULL_W = TOOLBAR_BTN_W + 52;
+static const int OVF_BTN_W       = 26;
+
+static bool IsTbSep(int i) { return g_toolbarButtons[i].label && g_toolbarButtons[i].label[0] == L'|'; }
+static int  TbBtnW(int i)
+{
+    if (IsTbSep(i)) return 12;
+    return g_toolbarButtons[i].width > 0 ? g_toolbarButtons[i].width : TOOLBAR_BTN_W;
+}
+
+// 버튼을 숨기지 않았을 때의 왼쪽 위치 (구분선 포함)
+static int TbNaturalX(int index)
+{
+    int x = TOOLBAR_MARGIN;
+    for (int i = 0; i < index; ++i) x += TbBtnW(i);
+    return x;
+}
+
+// 오른쪽 고정 버튼 묶음(빠른 이동 ~ 검색어)의 너비
+static int RightGroupW(int findW)
+{
+    return TOOLBAR_MARGIN + findW + 5 * (TB_GAP + TOOLBAR_BTN_W);
+}
+
+struct TbLayout
+{
+    int  findW    = FIND_BTN_FULL_W;
+    int  visible  = 0;      // 이 번호보다 앞의 왼쪽 버튼만 보임
+    bool overflow = false;
+    RECT ovfRc    = {};
+};
+
+static TbLayout ComputeTbLayout(int clientW)
+{
+    TbLayout L;
+    const int leftEnd = TbNaturalX(g_toolbarButtonCount);
+    if (clientW <= 0) { L.visible = g_toolbarButtonCount; return L; }
+    // ① 다 안 들어가면 검색어 버튼을 아이콘만
+    if (leftEnd + TB_GAP > clientW - RightGroupW(FIND_BTN_FULL_W))
+        L.findW = TOOLBAR_BTN_W;
+    const int limit = clientW - RightGroupW(L.findW) - TB_GAP;   // 왼쪽 버튼이 끝날 수 있는 곳
+    if (leftEnd <= limit) { L.visible = g_toolbarButtonCount; return L; }
+
+    // ② 넘침: » 버튼 자리를 남기고 들어가는 만큼만
+    L.overflow = true;
+    const int lim2 = limit - OVF_BTN_W - 4;
+    int vis = 0;
+    while (vis < g_toolbarButtonCount && TbNaturalX(vis + 1) <= lim2) ++vis;
+    while (vis > 0 && IsTbSep(vis - 1)) --vis;                    // 끝에 남은 구분선은 같이 숨김
+    // 색 버튼은 짝(형광펜·펜)과 떨어지지 않게
+    if (vis > 0 && g_toolbarButtons[vis - 1].pngResId != 0 && vis < g_toolbarButtonCount
+        && g_toolbarButtons[vis].label && g_toolbarButtons[vis].label[0] == L'#')
+        --vis;
+    while (vis > 0 && IsTbSep(vis - 1)) --vis;
+    L.visible = vis;
+    const int ox = TbNaturalX(vis) + (vis > 0 ? 4 : 0);
+    const int y  = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
+    L.ovfRc = { ox, y, ox + OVF_BTN_W, y + TOOLBAR_BTN_H };
+    return L;
+}
+
+static TbLayout CurTbLayout()
+{
+    RECT cr = {};
+    if (g_hMainWnd) GetClientRect(g_hMainWnd, &cr);
+    return ComputeTbLayout(cr.right - cr.left);
+}
+
+RECT GetToolbarOverflowBtnRect(const RECT& clientRect)
+{
+    const TbLayout L = ComputeTbLayout(clientRect.right - clientRect.left);
+    return L.overflow ? L.ovfRc : RECT{ 0, 0, 0, 0 };
+}
+
+
 RECT GetToolbarButtonRect(int index)
 {
     if (index < 0 || index >= g_toolbarButtonCount)
         return { 0, 0, 0, 0 };
-    int btnX = TOOLBAR_MARGIN;
-    for (int i = 0; i < index; ++i)
-    {
-        if (g_toolbarButtons[i].label && g_toolbarButtons[i].label[0] == L'|')
-            btnX += 12;
-        else {
-            int w = g_toolbarButtons[i].width > 0 ? g_toolbarButtons[i].width : TOOLBAR_BTN_W;
-            btnX += w + 0;
-        }
-    }
-    int btnW = (index >= 0 && index < g_toolbarButtonCount && g_toolbarButtons[index].width > 0)
-        ? g_toolbarButtons[index].width : TOOLBAR_BTN_W;
+    if (index >= CurTbLayout().visible)
+        return { 0, 0, 0, 0 };   // 숨은 버튼 (» 메뉴에 있음)
+    const int btnX = TbNaturalX(index);
+    const int btnW = IsTbSep(index) ? 12 : TbBtnW(index);
     return {
         btnX,
         (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2,
@@ -197,55 +268,60 @@ RECT GetToolbarButtonRect(int index)
     };
 }
 
-RECT GetScreenLockToolbarBtnRect(const RECT& clientRect)
+static int FindBtnW(const RECT& clientRect) { return ComputeTbLayout(clientRect.right - clientRect.left).findW; }
+bool IsFindToolbarBtnCompact(const RECT& clientRect) { return FindBtnW(clientRect) < FIND_BTN_FULL_W; }
+
+// 오른쪽 고정 버튼: 오른쪽 끝에서 n번째(검색어 = 0) 칸의 왼쪽 위치
+static RECT RightSlotRect(const RECT& clientRect, int slot)
 {
-    const int findBtnW = TOOLBAR_BTN_W + 52;
-    int x = clientRect.right - TOOLBAR_MARGIN - findBtnW - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W;
-    int y = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
-    return { x, y, x + TOOLBAR_BTN_W, y + TOOLBAR_BTN_H };
+    const int findW = FindBtnW(clientRect);
+    int x = clientRect.right - TOOLBAR_MARGIN - findW - slot * (TB_GAP + TOOLBAR_BTN_W);
+    const int w = slot == 0 ? findW : TOOLBAR_BTN_W;
+    const int y = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
+    return { x, y, x + w, y + TOOLBAR_BTN_H };
 }
 
-RECT GetDarkModeToolbarBtnRect(const RECT& clientRect)
-{
-    const int findBtnW = TOOLBAR_BTN_W + 52;
-    int x = clientRect.right - TOOLBAR_MARGIN - findBtnW - TB_GAP - TOOLBAR_BTN_W;
-    int y = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
-    return { x, y, x + TOOLBAR_BTN_W, y + TOOLBAR_BTN_H };
-}
+RECT GetFindToolbarBtnRect(const RECT& clientRect)        { return RightSlotRect(clientRect, 0); }
+RECT GetDarkModeToolbarBtnRect(const RECT& clientRect)    { return RightSlotRect(clientRect, 1); }
+RECT GetSpotlightToolbarBtnRect(const RECT& clientRect)   { return RightSlotRect(clientRect, 2); }
+RECT GetLaserPointerToolbarBtnRect(const RECT& clientRect){ return RightSlotRect(clientRect, 3); }
+RECT GetScreenLockToolbarBtnRect(const RECT& clientRect)  { return RightSlotRect(clientRect, 4); }
+RECT GetQuickJumpToolbarBtnRect(const RECT& clientRect)   { return RightSlotRect(clientRect, 5); }
 
-RECT GetSpotlightToolbarBtnRect(const RECT& clientRect)
+// » 버튼: 숨은 버튼들을 메뉴로 보여 주고 고른 명령을 실행
+void ShowToolbarOverflowMenu(HWND hWnd)
 {
-    const int findBtnW = TOOLBAR_BTN_W + 52;
-    int x = clientRect.right - TOOLBAR_MARGIN - findBtnW - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W;
-    int y = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
-    return { x, y, x + TOOLBAR_BTN_W, y + TOOLBAR_BTN_H };
-}
-
-RECT GetLaserPointerToolbarBtnRect(const RECT& clientRect)
-{
-    const int findBtnW = TOOLBAR_BTN_W + 52;
-    int x = clientRect.right - TOOLBAR_MARGIN - findBtnW - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W;
-    int y = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
-    return { x, y, x + TOOLBAR_BTN_W, y + TOOLBAR_BTN_H };
-}
-
-RECT GetFindToolbarBtnRect(const RECT& clientRect)
-{
-    const int btnW = TOOLBAR_BTN_W + 52;
-    int x = clientRect.right - TOOLBAR_MARGIN - btnW;
-    int y = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
-    return { x, y, x + btnW, y + TOOLBAR_BTN_H };
-}
-
-RECT GetQuickJumpToolbarBtnRect(const RECT& clientRect)
-{
-    const int findBtnW = TOOLBAR_BTN_W + 52;
-    const int qjBtnW   = TOOLBAR_BTN_W; // 아이콘만
-    // QuickJump는 ScreenLock 바로 왼쪽
-    int screenLockX = clientRect.right - TOOLBAR_MARGIN - findBtnW - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W - TB_GAP - TOOLBAR_BTN_W;
-    int x = screenLockX - TB_GAP - qjBtnW;
-    int y = (TOOLBAR_HEIGHT - TOOLBAR_BTN_H) / 2;
-    return { x, y, x + qjBtnW, y + TOOLBAR_BTN_H };
+    RECT cr; GetClientRect(hWnd, &cr);
+    const TbLayout L = ComputeTbLayout(cr.right - cr.left);
+    if (!L.overflow) return;
+    HMENU hm = CreatePopupMenu();
+    bool pendingSep = false, any = false;
+    for (int i = L.visible; i < g_toolbarButtonCount; ++i)
+    {
+        const auto& b = g_toolbarButtons[i];
+        if (IsTbSep(i)) { pendingSep = any; continue; }
+        if (b.commandId == 0) continue;
+        const wchar_t* tip = GetToolbarTooltip(i);
+        if (!tip || !*tip) continue;
+        if (pendingSep) { AppendMenuW(hm, MF_SEPARATOR, 0, nullptr); pendingSep = false; }
+        const bool enabled = !b.needsDoc || g_pdfDoc != nullptr;
+        const bool checked = (b.commandId == IDM_HAND_TOOL        && g_handMode)
+                          || (b.commandId == IDM_TOGGLE_SIDEBAR   && g_sidebarVisible && g_sidebarTab == 0)
+                          || (b.commandId == IDM_TOGGLE_THUMBNAIL && g_sidebarVisible && g_sidebarTab == 1)
+                          || (b.commandId == IDM_AUTO_SCROLL      && g_autoScrolling)
+                          || (b.commandId == IDM_HIGHLIGHT_MODE   && g_highlightMode)
+                          || (b.commandId == IDM_INK_MODE         && g_inkMode)
+                          || (b.commandId == IDM_TEXT_EDIT_MODE   && TextEdit::IsActive());
+        AppendMenuW(hm, MF_STRING | (enabled ? 0 : MF_GRAYED) | (checked ? MF_CHECKED : 0),
+                    (UINT_PTR)b.commandId, tip);
+        any = true;
+    }
+    POINT pt = { L.ovfRc.left, L.ovfRc.bottom + 2 };
+    ClientToScreen(hWnd, &pt);
+    const int cmd = (int)TrackPopupMenu(hm, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_NONOTIFY,
+                                        pt.x, pt.y, 0, hWnd, nullptr);
+    DestroyMenu(hm);
+    if (cmd > 0) PostMessageW(hWnd, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
 }
 
 RECT GetStatusPrevBtnRect(const RECT& clientRect)
@@ -434,6 +510,7 @@ static void DrawToolbarContent(HDC hdc, const RECT& clientRect, int hoverBtn)
     {
         const auto& btn = g_toolbarButtons[i];
         RECT r = GetToolbarButtonRect(i);
+        if (IsRectEmpty(&r)) continue;   // 창이 좁아 숨은 버튼 (» 메뉴)
 
         if (btn.label && btn.label[0] == L'|')
         {
@@ -628,9 +705,43 @@ static void DrawToolbarContent(HDC hdc, const RECT& clientRect, int hoverBtn)
         }
         RECT iconR = { r.left, r.top, r.left + TOOLBAR_BTN_W, r.bottom };
         DrawPngIcon(hdc, IDB_SEARCH_PNG, iconR, 18, true);
-        RECT textR = { r.left + TOOLBAR_BTN_W - 2, r.top, r.right, r.bottom };
-        SetTextColor(hdc, (hovered || active) ? (active ? activeText : hoverText) : iconTextClr);
-        DrawTextW(hdc, LS(STR_SEARCH_LABEL), -1, &textR, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        if (!IsFindToolbarBtnCompact(clientRect))   // 좁은 창에서는 아이콘만
+        {
+            RECT textR = { r.left + TOOLBAR_BTN_W - 2, r.top, r.right, r.bottom };
+            SetTextColor(hdc, (hovered || active) ? (active ? activeText : hoverText) : iconTextClr);
+            DrawTextW(hdc, LS(STR_SEARCH_LABEL), -1, &textR, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        }
+    }
+
+    // » 더 보기 버튼 (창이 좁아 숨은 왼쪽 버튼이 있을 때)
+    {
+        RECT r = GetToolbarOverflowBtnRect(clientRect);
+        if (!IsRectEmpty(&r))
+        {
+            const bool hovered = (hoverBtn == 9993);
+            if (hovered)
+            {
+                HBRUSH hBr = CreateSolidBrush(hoverBg);
+                HPEN   hPn = CreatePen(PS_SOLID, 1, hoverBorder);
+                HPEN   oPn = static_cast<HPEN>(SelectObject(hdc, hPn));
+                HBRUSH oBr = static_cast<HBRUSH>(SelectObject(hdc, hBr));
+                RoundRect(hdc, r.left, r.top, r.right, r.bottom, 6, 6);
+                SelectObject(hdc, oPn); SelectObject(hdc, oBr);
+                DeleteObject(hPn);      DeleteObject(hBr);
+            }
+            Gdiplus::Graphics gx(hdc);
+            gx.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            Gdiplus::Pen pen(Gdiplus::Color(255, GetRValue(iconTextClr), GetGValue(iconTextClr), GetBValue(iconTextClr)), 1.6f);
+            pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+            pen.SetLineJoin(Gdiplus::LineJoinRound);
+            const float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
+            for (int k = 0; k < 2; ++k)   // » 모양 꺾쇠 두 개
+            {
+                const float ox = cx - 3.5f + k * 5.0f;
+                Gdiplus::PointF pts[3] = { { ox - 2.0f, cy - 4.0f }, { ox + 2.0f, cy }, { ox - 2.0f, cy + 4.0f } };
+                gx.DrawLines(&pen, pts, 3);
+            }
+        }
     }
 
     SelectObject(hdc, oldFont);
@@ -689,6 +800,7 @@ void DrawToolbar(HDC hdc, const RECT& clientRect)
         else if (btnIdx == 9996) r = GetSpotlightToolbarBtnRect(clientRect);
         else if (btnIdx == 9995) r = GetLaserPointerToolbarBtnRect(clientRect);
         else if (btnIdx == 9994) r = GetQuickJumpToolbarBtnRect(clientRect);
+        else if (btnIdx == 9993) r = GetToolbarOverflowBtnRect(clientRect);
         else if (btnIdx >= 0 && btnIdx < g_toolbarButtonCount)
             r = GetToolbarButtonRect(btnIdx);
         else return;

@@ -326,6 +326,7 @@
 #define STR_SIG_CANCEL_KO           L"취소"
 #define STR_SIG_APPLY_KO            L"적용"
 #define STR_SIG_USE_PREV_KO L"이전 서명 사용"
+#define STR_TIP_TB_MORE_KO              L"더 보기"
 #define STR_GP_PANEL_TITLE_KO       L"그룹"
 #define STR_GP_SEL_HINT_KO          L"오른쪽 + 를 눌러 항목을 추가하세요"
 #define STR_GP_ADD_FIRST_KO         L"가장 먼저 그룹을 추가하세요"

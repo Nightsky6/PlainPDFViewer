@@ -326,6 +326,7 @@
 #define STR_SIG_CANCEL_ZH           L"取消"
 #define STR_SIG_APPLY_ZH            L"应用"
 #define STR_SIG_USE_PREV_ZH L"使用上次的签名"
+#define STR_TIP_TB_MORE_ZH              L"更多工具"
 #define STR_GP_PANEL_TITLE_ZH       L"分组"
 #define STR_GP_SEL_HINT_ZH          L"点击右侧 + 添加项目"
 #define STR_GP_ADD_FIRST_ZH         L"请先添加分组"

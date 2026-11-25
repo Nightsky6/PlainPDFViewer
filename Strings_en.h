@@ -326,6 +326,7 @@
 #define STR_SIG_CANCEL_EN           L"Cancel"
 #define STR_SIG_APPLY_EN            L"Apply"
 #define STR_SIG_USE_PREV_EN L"Use last signature"
+#define STR_TIP_TB_MORE_EN              L"More tools"
 #define STR_GP_PANEL_TITLE_EN       L"Groups"
 #define STR_GP_SEL_HINT_EN          L"Press + on the right to add an item"
 #define STR_GP_ADD_FIRST_EN         L"Add a group first"

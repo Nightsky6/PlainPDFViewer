@@ -326,6 +326,7 @@
 #define STR_SIG_CANCEL_DE           L"Abbrechen"
 #define STR_SIG_APPLY_DE            L"Anwenden"
 #define STR_SIG_USE_PREV_DE L"Letzte Unterschrift"
+#define STR_TIP_TB_MORE_DE              L"Weitere Werkzeuge"
 #define STR_GP_PANEL_TITLE_DE       L"Gruppen"
 #define STR_GP_SEL_HINT_DE          L"Rechts auf + drücken, um ein Element hinzuzufügen"
 #define STR_GP_ADD_FIRST_DE         L"Zuerst eine Gruppe hinzufügen"

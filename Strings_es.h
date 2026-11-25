@@ -326,6 +326,7 @@
 #define STR_SIG_CANCEL_ES           L"Cancelar"
 #define STR_SIG_APPLY_ES            L"Aplicar"
 #define STR_SIG_USE_PREV_ES L"Usar firma anterior"
+#define STR_TIP_TB_MORE_ES              L"Más herramientas"
 #define STR_GP_PANEL_TITLE_ES       L"Grupos"
 #define STR_GP_SEL_HINT_ES          L"Pulse + a la derecha para agregar un elemento"
 #define STR_GP_ADD_FIRST_ES         L"Agregue primero un grupo"
