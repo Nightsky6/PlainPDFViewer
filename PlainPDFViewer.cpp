@@ -297,7 +297,17 @@ struct SignatureItem {
     // 화면 렌더링용 비트맵 캐시 (재생성 가능)
     Gdiplus::Bitmap* bitmap = nullptr;
     int srcW = 1, srcH = 1;
+    COLORREF penColor = RGB(20, 20, 20);
+    float    penPx = 0.f;   // 서명 패드 캔버스 기준 펜 굵기 (0 = 예전 서명: 상자 크기 비례)
 };
+
+// 서명 획의 PDF 단위 굵기: 패드에서 고른 굵기를 상자 크기에 맞춰 늘리거나 줄임 (크기 조절해도 비율 유지)
+static double SigPenPdfWidth(const SignatureItem& sig)
+{
+    if (sig.penPx > 0.f && sig.srcW > 1)
+        return sig.penPx * std::max(sig.pdfW, sig.pdfH) / (double)std::max(sig.srcW, sig.srcH);
+    return std::max(sig.pdfW, sig.pdfH) * 0.012;
+}
 static std::vector<SignatureItem> g_signatures;
 static int  g_selectedSig       = -1;
 static bool g_isDraggingSig      = false;
@@ -5315,12 +5325,13 @@ static void DrawSignatures(HDC hdc, const RECT& clientRect)
             g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
 
             // 박스 화면 크기 기반으로 선 두께 결정
-            double pdfPenW = std::max(sig.pdfW, sig.pdfH) * 0.012; // PDF 단위
+            double pdfPenW = SigPenPdfWidth(sig); // PDF 단위
             // PDF → 화면 스케일
             double screenScale = (sig.pdfW > 0) ? (double)sw / sig.pdfW : g_zoom;
             float penW = std::max(1.0f, (float)(pdfPenW * screenScale));
 
-            Gdiplus::Pen pen(Gdiplus::Color(255, 20, 20, 20), penW);
+            const Gdiplus::Color penC(255, GetRValue(sig.penColor), GetGValue(sig.penColor), GetBValue(sig.penColor));
+            Gdiplus::Pen pen(penC, penW);
             pen.SetStartCap(Gdiplus::LineCapRound);
             pen.SetEndCap(Gdiplus::LineCapRound);
             pen.SetLineJoin(Gdiplus::LineJoinRound);
@@ -5340,7 +5351,7 @@ static void DrawSignatures(HDC hdc, const RECT& clientRect)
                     PdfToScreen(stroke[0].x, stroke[0].y, pageW2, pageH2,
                         pgLeft, pgTop, g_zoom, GetEffectiveRotation(sig.pageIndex), &sx2, &sy2);
                     float r2 = penW / 2.0f;
-                    Gdiplus::SolidBrush dot(Gdiplus::Color(255, 20, 20, 20));
+                    Gdiplus::SolidBrush dot(penC);
                     g.FillEllipse(&dot, (float)sx2 - r2, (float)sy2 - r2, penW, penW);
                     continue;
                 }
@@ -5672,11 +5683,33 @@ void EmbedSignatureObjects()
                         FPDF_PAGE pages[1] = { page };
                         if (FPDFImageObj_SetBitmap(pages, 1, imgObj, fBitmap))
                         {
-                            double l = sig.pdfX;
-                            double b = sig.pdfY - sig.pdfH;
-                            double r2 = sig.pdfX + sig.pdfW;
-                            double t  = sig.pdfY;
-                            FPDFPageObj_Transform(imgObj, r2 - l, 0, 0, t - b, l, b);
+                            const double l = sig.pdfX, b = sig.pdfY - sig.pdfH;
+                            const double r2 = sig.pdfX + sig.pdfW, t = sig.pdfY;
+                            // 상자 네 모서리가 화면에서 어디에 오는지로 이미지의 왼쪽 아래·오른쪽 아래·왼쪽 위를 정함
+                            // → 회전한 페이지에서도 화면에 보이던 방향 그대로 들어감 (회전 없으면 예전과 같음)
+                            const double cx4[4] = { l, r2, l, r2 }, cy4[4] = { b, b, t, t };
+                            int bl = 0, br = 0, tl = 0;
+                            {
+                                RECT crE; GetClientRect(g_hMainWnd, &crE);
+                                const RECT vpE = GetViewportRect(crE);
+                                int pgL, pgT;
+                                GetPageScreenPos(sig.pageIndex, vpE, &pgL, &pgT);
+                                const double pw = g_pageLayouts[sig.pageIndex].pdfW, ph = g_pageLayouts[sig.pageIndex].pdfH;
+                                const int rot = GetEffectiveRotation(sig.pageIndex);
+                                int sx[4], sy[4];
+                                for (int k = 0; k < 4; ++k)
+                                    PdfToScreen(cx4[k], cy4[k], pw, ph, pgL, pgT, g_zoom, rot, &sx[k], &sy[k]);
+                                for (int k = 1; k < 4; ++k)
+                                {
+                                    if (sx[k] - sy[k] < sx[bl] - sy[bl]) bl = k;   // 화면 왼쪽 아래
+                                    if (sx[k] + sy[k] > sx[br] + sy[br]) br = k;   // 화면 오른쪽 아래
+                                    if (sx[k] + sy[k] < sx[tl] + sy[tl]) tl = k;   // 화면 왼쪽 위
+                                }
+                            }
+                            FPDFPageObj_Transform(imgObj,
+                                cx4[br] - cx4[bl], cy4[br] - cy4[bl],
+                                cx4[tl] - cx4[bl], cy4[tl] - cy4[bl],
+                                cx4[bl], cy4[bl]);
                             FPDFPage_InsertObject(page, imgObj);
                         }
                         else
@@ -5691,7 +5724,7 @@ void EmbedSignatureObjects()
         else if (!sig.strokes.empty())
         {
             // 잉크 서명: 어노테이션 대신 path 오브젝트로 삽입 (비가역적, 이미지 서명과 동일)
-            double pdfPenW = std::max(sig.pdfW, sig.pdfH) * 0.012;
+            double pdfPenW = SigPenPdfWidth(sig);
 
             for (auto& stroke : sig.strokes)
             {
@@ -5703,7 +5736,7 @@ void EmbedSignatureObjects()
                 for (int i = 1; i < (int)stroke.size(); i++)
                     FPDFPath_LineTo(path, stroke[i].x, stroke[i].y);
 
-                FPDFPageObj_SetStrokeColor(path, 20, 20, 20, 255);
+                FPDFPageObj_SetStrokeColor(path, GetRValue(sig.penColor), GetGValue(sig.penColor), GetBValue(sig.penColor), 255);
                 FPDFPageObj_SetFillColor(path, 0, 0, 0, 0);
                 FPDFPageObj_SetStrokeWidth(path, (float)pdfPenW);
                 FPDFPath_SetDrawMode(path, 0, 1); // stroke only
@@ -10840,35 +10873,72 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 break;
             }
             SignatureResult sr = ShowSignaturePad(hWnd);
-            if (sr.bmp && (sr.isImage || !sr.strokes.empty()))
+            if (sr.bmp && (sr.isImage || !sr.strokes.empty()) && sr.bmpW > 0 && sr.bmpH > 0)
             {
-                double pageW = g_pageLayouts[g_currentPage].pdfW;
-                double pageH = g_pageLayouts[g_currentPage].pdfH;
-                double pdfW = 160.0 / g_zoom;
-                double pdfH = (sr.bmpH > 0)
-                    ? pdfW * (double)sr.bmpH / (double)sr.bmpW
-                    : 54.0 / g_zoom;
-                double pdfX = pageW / 2.0 - pdfW / 2.0;
-                double pdfY = pageH / 2.0 + pdfH / 2.0;
+                RECT crS; GetClientRect(hWnd, &crS);
+                const RECT vpS = GetViewportRect(crS);
+                // 놓을 곳: 지금 화면 가운데에 있는 페이지 (없으면 현재 페이지)
+                const int vcx = (vpS.left + vpS.right) / 2, vcy = (vpS.top + vpS.bottom) / 2;
+                double hx, hy;
+                int pg = HitTestPageAtPoint(vcx, vcy, vpS, &hx, &hy);
+                if (pg < 0) pg = std::clamp(g_currentPage, 0, g_pageCount - 1);
+                const RECT pr = PageScreenRect(pg, vpS);
+                // 보이는 부분(화면 ∩ 페이지)의 가운데
+                RECT vis = {};
+                if (!IntersectRect(&vis, &pr, &vpS)) vis = pr;
+                const double pgSW = (double)(pr.right - pr.left), pgSH = (double)(pr.bottom - pr.top);
 
-                // 캔버스 픽셀 좌표 → PDF 좌표로 변환하여 획 저장
-                double scaleX = pdfW / (double)sr.canvasW;
-                double scaleY = pdfH / (double)sr.canvasH;
+                // 화면 기준 크기: 너비 160px, 높이는 서명 비율 (페이지의 80%를 넘지 않게)
+                double sc = 160.0 / sr.bmpW;
+                if (sr.bmpW * sc > pgSW * 0.8) sc = pgSW * 0.8 / sr.bmpW;
+                if (sr.bmpH * sc > pgSH * 0.8) sc = pgSH * 0.8 / sr.bmpH;
+                const double sw = sr.bmpW * sc, sh = sr.bmpH * sc;
+                const double left = std::clamp((vis.left + vis.right) / 2.0 - sw / 2.0, (double)pr.left, pr.right - sw);
+                const double top  = std::clamp((vis.top + vis.bottom) / 2.0 - sh / 2.0, (double)pr.top, pr.bottom - sh);
+
+                // 화면 좌표 → PDF 좌표 (회전 포함, 소수점 유지)
+                int pgL, pgT;
+                GetPageScreenPos(pg, vpS, &pgL, &pgT);
+                const double pageW = g_pageLayouts[pg].pdfW, pageH = g_pageLayouts[pg].pdfH;
+                const int rot = GetEffectiveRotation(pg);
+                auto toPdf = [&](double X, double Y, double& ox, double& oy) {
+                    const double sx = (X - pgL) / (double)g_zoom, sy = (Y - pgT) / (double)g_zoom;
+                    switch (rot) {
+                    default:
+                    case 0: ox = sx;         oy = pageH - sy; break;
+                    case 1: ox = sy;         oy = sx;         break;
+                    case 2: ox = pageW - sx; oy = sy;         break;
+                    case 3: ox = pageH - sy; oy = pageW - sx; break;
+                    }
+                };
+
+                // 상자: 화면 사각형 네 모서리의 PDF 좌표를 감싸는 사각형
+                double xs[4], ys[4];
+                toPdf(left,      top,      xs[0], ys[0]);
+                toPdf(left + sw, top,      xs[1], ys[1]);
+                toPdf(left,      top + sh, xs[2], ys[2]);
+                toPdf(left + sw, top + sh, xs[3], ys[3]);
+                const double minX = *std::min_element(xs, xs + 4), maxX = *std::max_element(xs, xs + 4);
+                const double minY = *std::min_element(ys, ys + 4), maxY = *std::max_element(ys, ys + 4);
 
                 SignatureItem item;
-                item.pageIndex = g_currentPage;
-                item.pdfX = pdfX; item.pdfY = pdfY;
-                item.pdfW = pdfW; item.pdfH = pdfH;
+                item.pageIndex = pg;
+                item.pdfX = minX; item.pdfY = maxY;
+                item.pdfW = maxX - minX; item.pdfH = maxY - minY;
                 item.bitmap = sr.bmp;
                 item.srcW = sr.bmpW; item.srcH = sr.bmpH;
                 item.isImage = sr.isImage;
+                item.penColor = sr.penColor;
+                item.penPx = sr.penWidth;
+                // 획: 캔버스 좌표 → (잘라 낸 이미지 기준) 화면 좌표 → PDF 좌표
+                // 가로·세로를 같은 비율로 옮겨 상자에 꼭 맞고 찌그러지지 않음
                 for (auto& s : sr.strokes) {
                     std::vector<SigStrokePt> stroke;
-                    for (auto& p : s) {
-                        // 캔버스 Y는 위→아래, PDF Y는 아래→위
-                        float px = (float)(pdfX + p.x * scaleX);
-                        float py = (float)(pdfY - p.y * scaleY);
-                        stroke.push_back({ px, py });
+                    stroke.reserve(s.size());
+                    for (auto& q : s) {
+                        double px, py;
+                        toPdf(left + (q.x - sr.cropX) * sc, top + (q.y - sr.cropY) * sc, px, py);
+                        stroke.push_back({ (float)px, (float)py });
                     }
                     item.strokes.push_back(std::move(stroke));
                 }
@@ -10877,6 +10947,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 g_dirty = true;
                 InvalidateRect(hWnd, nullptr, FALSE);
             }
+            else if (sr.bmp)
+                delete sr.bmp;
             break;
         }
         case IDM_AUTO_SCROLL:

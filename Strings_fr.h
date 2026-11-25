@@ -325,6 +325,7 @@
 #define STR_SIG_IMAGE_FR            L"Image"
 #define STR_SIG_CANCEL_FR           L"Annuler"
 #define STR_SIG_APPLY_FR            L"Appliquer"
+#define STR_SIG_USE_PREV_FR L"Signature précédente"
 #define STR_GP_PANEL_TITLE_FR       L"Groupes"
 #define STR_GP_SEL_HINT_FR          L"Appuyez sur + à droite pour ajouter un élément"
 #define STR_GP_ADD_FIRST_FR         L"Ajoutez d'abord un groupe"

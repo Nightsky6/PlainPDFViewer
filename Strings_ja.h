@@ -325,6 +325,7 @@
 #define STR_SIG_IMAGE_JA            L"画像"
 #define STR_SIG_CANCEL_JA           L"キャンセル"
 #define STR_SIG_APPLY_JA            L"適用"
+#define STR_SIG_USE_PREV_JA L"前回の署名を使う"
 #define STR_GP_PANEL_TITLE_JA       L"グループ"
 #define STR_GP_SEL_HINT_JA          L"右の + を押して項目を追加してください"
 #define STR_GP_ADD_FIRST_JA         L"まずグループを追加してください"

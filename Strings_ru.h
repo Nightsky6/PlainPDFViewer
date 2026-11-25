@@ -325,6 +325,7 @@
 #define STR_SIG_IMAGE_RU            L"Изображение"
 #define STR_SIG_CANCEL_RU           L"Отмена"
 #define STR_SIG_APPLY_RU            L"Применить"
+#define STR_SIG_USE_PREV_RU L"Прошлая подпись"
 #define STR_GP_PANEL_TITLE_RU       L"Группы"
 #define STR_GP_SEL_HINT_RU          L"Нажмите + справа, чтобы добавить элемент"
 #define STR_GP_ADD_FIRST_RU         L"Сначала добавьте группу"
