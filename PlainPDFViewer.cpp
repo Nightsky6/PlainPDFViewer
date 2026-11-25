@@ -42,6 +42,9 @@
 #include <fpdf_fwlevent.h>
 #include <vector>
 #include <unordered_map>
+#include <map>
+#include <tuple>
+#include <array>
 #include <set>
 #include <windowsx.h>
 #include "CleanPopup.h"
@@ -6585,6 +6588,58 @@ static void DeduplicateAnnotations()
 }
 
 // 메모리 내 하이라이트·밑줄을 PDF 어노테이션으로 삽입 (현재 페이지만)
+// 저장 시 텍스트 편집을 반영하면 페이지의 글자 번호가 바뀐다.
+// 하이라이트·밑줄·취소선·물결선은 글자 번호로 위치를 정하므로, 편집 반영 전에 글자 사각형을 미리 구해 둔다.
+// 키 = (페이지, 첫 글자, 끝 글자)
+static std::map<std::tuple<int, int, int>, std::vector<std::array<double, 4>>> s_markupRectsBeforeEdit;
+static bool s_useMarkupRectsBeforeEdit = false;
+
+static void PrecomputeMarkupRects()
+{
+    s_markupRectsBeforeEdit.clear();
+    s_useMarkupRectsBeforeEdit = false;
+    if (!g_pdfDoc) return;
+    std::vector<std::tuple<int, int, int>> keys;
+    auto add = [&](int p, int a, int b) { keys.emplace_back(p, std::min(a, b), std::max(a, b)); };
+    for (const auto& x : g_highlights)  add(x.pageIndex, x.charStart, x.charEnd);
+    for (const auto& x : g_underlines)  add(x.pageIndex, x.charStart, x.charEnd);
+    for (const auto& x : g_strikeouts)  add(x.pageIndex, x.charStart, x.charEnd);
+    for (const auto& x : g_squigglies)  add(x.pageIndex, x.charStart, x.charEnd);
+    if (keys.empty()) return;
+    std::sort(keys.begin(), keys.end());
+
+    int curPage = -1;
+    FPDF_PAGE pg = nullptr; FPDF_TEXTPAGE tp = nullptr;
+    auto closeCur = [&]() {
+        if (tp) FPDFText_ClosePage(tp);
+        if (pg) FPDF_ClosePage(pg);
+        tp = nullptr; pg = nullptr;
+    };
+    for (const auto& k : keys)
+    {
+        const auto [page, first, last] = k;
+        if (page < 0 || page >= g_pageCount) continue;
+        if (page != curPage)
+        {
+            closeCur();
+            curPage = page;
+            pg = FPDF_LoadPage(g_pdfDoc, page);
+            tp = pg ? FPDFText_LoadPage(pg) : nullptr;
+        }
+        if (!tp || s_markupRectsBeforeEdit.count(k)) continue;
+        auto& out = s_markupRectsBeforeEdit[k];
+        const int n = FPDFText_CountRects(tp, first, last - first + 1);
+        for (int ri = 0; ri < n; ++ri)
+        {
+            std::array<double, 4> r{};
+            FPDFText_GetRect(tp, ri, &r[0], &r[1], &r[2], &r[3]);
+            out.push_back(r);
+        }
+    }
+    closeCur();
+    s_useMarkupRectsBeforeEdit = true;
+}
+
 void EmbedHighlightAnnotations()
 {
     if (!g_pdfDoc) return;
@@ -6687,14 +6742,25 @@ void EmbedHighlightAnnotations()
         const int count    = lastIdx - firstIdx + 1;
         if (count <= 0) continue;
 
-        const int nRects = FPDFText_CountRects(workTextPage, firstIdx, count);
-        if (nRects <= 0) continue;
-
         struct PdfRect { double left, top, right, bottom; };
-        std::vector<PdfRect> rects(nRects);
-        for (int ri = 0; ri < nRects; ++ri)
-            FPDFText_GetRect(workTextPage, ri, &rects[ri].left, &rects[ri].top,
-                &rects[ri].right, &rects[ri].bottom);
+        std::vector<PdfRect> rects;
+        // 텍스트 편집 반영 전에 구해 둔 위치가 있으면 그것을 쓴다 (편집으로 글자 번호가 밀려도 제자리)
+        auto pre = s_useMarkupRectsBeforeEdit
+            ? s_markupRectsBeforeEdit.find({ item.pageIndex, firstIdx, lastIdx })
+            : s_markupRectsBeforeEdit.end();
+        if (pre != s_markupRectsBeforeEdit.end())
+        {
+            for (const auto& r : pre->second) rects.push_back({ r[0], r[1], r[2], r[3] });
+        }
+        else
+        {
+            const int nRects = FPDFText_CountRects(workTextPage, firstIdx, count);
+            rects.resize(nRects > 0 ? nRects : 0);
+            for (int ri = 0; ri < nRects; ++ri)
+                FPDFText_GetRect(workTextPage, ri, &rects[ri].left, &rects[ri].top,
+                    &rects[ri].right, &rects[ri].bottom);
+        }
+        if (rects.empty()) continue;
 
         // 같은 줄 높이 통일
         for (size_t i = 0; i < rects.size(); ++i)
@@ -7128,11 +7194,16 @@ static void SaveDocument(HWND hWnd, bool saveAs)
         }
     }
 
-    // 텍스트 편집 반영 — 페이지 오브젝트 인덱스가 바뀌기 전(서명 삽입·가림 적용 전)에 먼저 처리
+    // 텍스트 편집 반영 — 페이지 오브젝트 인덱스가 바뀌기 전(서명 삽입·가림 적용 전)에 먼저 처리.
+    // 편집으로 글자 번호가 바뀌므로 하이라이트 등의 위치는 그 전에 구해 둔다.
+    const bool hadTextEdits = TextEdit::HasPendingEdits(g_pdfDoc);
+    if (hadTextEdits) PrecomputeMarkupRects();
     TextEdit::ApplyPendingEdits(g_pdfDoc);
 
     // 하이라이트를 PDF 어노테이션으로 삽입 (밑줄은 메모리에서만 관리)
     EmbedHighlightAnnotations();
+    s_markupRectsBeforeEdit.clear();
+    s_useMarkupRectsBeforeEdit = false;
     EmbedNoteAnnotations();
     EmbedTextBoxAnnotations();
     EmbedSignatureObjects();
