@@ -11,10 +11,13 @@
 #include <gdiplus.h>
 #include <string>
 #include <algorithm>
+#include <mutex>
 #pragma comment(lib,"dwmapi.lib")
 #pragma comment(lib,"gdiplus.lib")
 std::vector<KeywordEntry> g_keywordList;
-static std::vector<HighlightItem> g_keywordHighlights;
+extern std::mutex g_pdfiumMtx;   // PDFium은 스레드 안전하지 않음 → 백그라운드 렌더와 동시에 쓰지 않도록 잠금
+static HFONT g_kwFont=nullptr, g_kwFontList=nullptr;   // 창을 닫을 때 해제
+static WNDPROC g_kwOrigEditProc=nullptr;
 static constexpr int KW_W=420,KW_H=490,KW_PADDING=20,KW_BTN_H=34,KW_BTN_W=110;
 static HWND g_kwWnd=nullptr,g_kwEditBox=nullptr,g_kwCombo=nullptr,g_kwList=nullptr;
 static bool g_kwDone=false,g_kwAddHover=false,g_kwDelHover=false,g_kwCloseHover=false,g_kwAddPressed=false;
@@ -78,6 +81,11 @@ static void InvalidateBtns(HWND hWnd){
     InvalidateRect(hWnd,&rd,FALSE);
     InvalidateRect(hWnd,&rc,FALSE);
 }
+
+static void KwAddFromEdit(HWND hWnd);
+static void KwDeleteSelected(HWND hWnd);
+static void ApplyKeywordToDoc(const KeywordEntry& entry);
+static void RemoveKeywordFromDoc(const KeywordEntry& entry);
 
 static void RefreshList(){
     if(!g_kwList)return;
@@ -231,33 +239,19 @@ static LRESULT CALLBACK KwWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam
         return 0;
     case WM_LBUTTONDOWN:{
         POINT pt={GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam)};
-        // 목록 외 클릭 시 선택 해제
-        if(g_kwList){
+        RECT ra2=GetAddBtnRect(),rd2=GetDelBtnRect(),rc2=GetCloseBtnRect();
+        // 목록·삭제 버튼 밖을 누르면 목록 선택 해제
+        // (삭제 버튼은 선택된 항목을 지워야 하므로 선택을 유지)
+        if(g_kwList&&!PtInRect(&rd2,pt)){
             RECT lr; GetWindowRect(g_kwList,&lr); MapWindowPoints(nullptr,hWnd,(LPPOINT)&lr,2);
             if(!PtInRect(&lr,pt)){
                 SendMessageW(g_kwList,LB_SETCURSEL,(WPARAM)-1,0);
                 SetFocus(g_kwEditBox); InvalidateRect(g_kwList,nullptr,TRUE); UpdateWindow(g_kwList);
             }
         }
-        RECT ra2=GetAddBtnRect(),rd2=GetDelBtnRect(),rc2=GetCloseBtnRect();
-        if(PtInRect(&ra2,pt)){
-            wchar_t buf[256]={};GetWindowTextW(g_kwEditBox,buf,256);
-            std::wstring kw(buf);
-            while(!kw.empty()&&iswspace(kw.front()))kw.erase(kw.begin());
-            while(!kw.empty()&&iswspace(kw.back()))kw.pop_back();
-            if(!kw.empty()){int sel=(int)SendMessageW(g_kwCombo,CB_GETCURSEL,0,0);if(sel<0)sel=0;
-            COLORREF color=kColors[sel];bool dup=false;
-            for(auto& e:g_keywordList)if(_wcsicmp(e.keyword.c_str(),kw.c_str())==0){dup=true;break;}
-            if(!dup){g_keywordList.push_back({kw,color});RefreshList();SetWindowTextW(g_kwEditBox,L"");
-                ApplyKeywordHighlights(GetParent(hWnd));
-            }}
-            InvalidateBtns(hWnd);
-        }else if(PtInRect(&rd2,pt)){
-            int sel=g_kwList?(int)SendMessageW(g_kwList,LB_GETCURSEL,0,0):-1;
-            if(sel>=0&&sel<(int)g_keywordList.size()){g_keywordList.erase(g_keywordList.begin()+sel);RefreshList();
-                ApplyKeywordHighlights(GetParent(hWnd));
-                InvalidateBtns(hWnd);}
-        }else if(PtInRect(&rc2,pt)){PostMessageW(hWnd,WM_CLOSE,0,0);}
+        if(PtInRect(&ra2,pt))      KwAddFromEdit(hWnd);
+        else if(PtInRect(&rd2,pt)) KwDeleteSelected(hWnd);
+        else if(PtInRect(&rc2,pt)) PostMessageW(hWnd,WM_CLOSE,0,0);
         return 0;}
     case WM_NCHITTEST:{
         LRESULT hit=DefWindowProcW(hWnd,msg,wParam,lParam);
@@ -286,47 +280,140 @@ static LRESULT CALLBACK KwWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam
     {
         HWND hPar = GetParent(hWnd);
         g_kwWnd = nullptr;
+        g_kwEditBox = g_kwCombo = g_kwList = nullptr;
+        if (g_kwFont)     { DeleteObject(g_kwFont);     g_kwFont = nullptr; }
+        if (g_kwFontList) { DeleteObject(g_kwFontList); g_kwFontList = nullptr; }
         if (hPar) { SetForegroundWindow(hPar); SetFocus(hPar); }
         return 0;
     }
     }
     return DefWindowProcW(hWnd,msg,wParam,lParam);
 }
-void ApplyKeywordHighlights(HWND hWnd){
-    if(!g_pdfDoc||g_keywordList.empty())return;
-    RemoveKeywordHighlights();
-    for(auto& entry:g_keywordList){
-        const std::wstring& kw=entry.keyword;if(kw.empty())continue;
-        for(int pg=0;pg<g_pageCount;pg++){
-            FPDF_PAGE page=FPDF_LoadPage(g_pdfDoc,pg);if(!page)continue;
-            FPDF_TEXTPAGE tp=FPDFText_LoadPage(page);if(!tp){FPDF_ClosePage(page);continue;}
-            int total=FPDFText_CountChars(tp);
-            if(total>0){
-                std::wstring pt2(total+1,L'\0');
-                FPDFText_GetText(tp,0,total,reinterpret_cast<unsigned short*>(&pt2[0]));pt2.resize(total);
-                std::wstring lp=pt2,lk=kw;
-                std::transform(lp.begin(),lp.end(),lp.begin(),::towlower);
-                std::transform(lk.begin(),lk.end(),lk.begin(),::towlower);
-                size_t pos=0;
-                while((pos=lp.find(lk,pos))!=std::wstring::npos){
-                    HighlightItem hl{};hl.pageIndex=pg;hl.charStart=(int)pos;hl.charEnd=(int)(pos+kw.size()-1);hl.color=entry.color;
-                    g_highlights.push_back(hl);g_keywordHighlights.push_back(hl);pos+=kw.size();
-                }
-            }
-            FPDFText_ClosePage(tp);FPDF_ClosePage(page);
-        }
-    }
-    g_dirty=true;InvalidateRect(hWnd,nullptr,TRUE);
+// 페이지 전체 텍스트를 소문자로 (FPDFText_GetText 의 인덱스 = 글자 인덱스)
+static std::wstring KwPageTextLower(FPDF_TEXTPAGE tp){
+    const int total=FPDFText_CountChars(tp);
+    if(total<=0) return {};
+    std::wstring s(total+1,L'\0');
+    FPDFText_GetText(tp,0,total,reinterpret_cast<unsigned short*>(&s[0]));
+    s.resize(total);
+    std::transform(s.begin(),s.end(),s.begin(),::towlower);
+    return s;
+}
+static std::wstring KwLower(std::wstring s){
+    std::transform(s.begin(),s.end(),s.begin(),::towlower);
+    return s;
 }
 
-void RemoveKeywordHighlights(){
-    if(g_keywordHighlights.empty())return;
+// 현재 문서에서 키워드를 찾아 일반 하이라이트로 추가 (이미 같은 자리·같은 색이면 건너뜀)
+static void ApplyKeywordToDoc(const KeywordEntry& entry){
+    if(!g_pdfDoc||entry.keyword.empty())return;
+    const std::wstring lk=KwLower(entry.keyword);
+    std::lock_guard<std::mutex> lk_(g_pdfiumMtx);
+    for(int pg=0;pg<g_pageCount;pg++){
+        FPDF_PAGE page=FPDF_LoadPage(g_pdfDoc,pg);if(!page)continue;
+        FPDF_TEXTPAGE tp=FPDFText_LoadPage(page);
+        if(tp){
+            const std::wstring lp=KwPageTextLower(tp);
+            size_t pos=0;
+            while((pos=lp.find(lk,pos))!=std::wstring::npos){
+                const int cs=(int)pos, ce=(int)(pos+lk.size()-1);
+                bool exists=false;
+                for(const auto& h:g_highlights)
+                    if(h.pageIndex==pg&&h.charStart==cs&&h.charEnd==ce&&h.color==entry.color){exists=true;break;}
+                if(!exists){
+                    HighlightItem hl{};hl.pageIndex=pg;hl.charStart=cs;hl.charEnd=ce;hl.color=entry.color;
+                    g_highlights.push_back(hl);g_dirty=true;
+                }
+                pos+=lk.size();
+            }
+            FPDFText_ClosePage(tp);
+        }
+        FPDF_ClosePage(page);
+    }
+}
+
+// 현재 문서에서 이 키워드로 만든 하이라이트(같은 글자 + 같은 색)를 지움
+// (따로 기록해 두지 않고 내용으로 찾으므로 탭을 바꾸거나 문서를 다시 열어도 정확)
+static void RemoveKeywordFromDoc(const KeywordEntry& entry){
+    if(!g_pdfDoc||entry.keyword.empty()||g_highlights.empty())return;
+    const std::wstring lk=KwLower(entry.keyword);
+    std::lock_guard<std::mutex> lk_(g_pdfiumMtx);
+    std::vector<std::wstring> pageText(g_pageCount);
+    std::vector<bool> loaded(g_pageCount,false);
+    auto textOf=[&](int pg)->const std::wstring&{
+        if(!loaded[pg]){
+            loaded[pg]=true;
+            if(FPDF_PAGE page=FPDF_LoadPage(g_pdfDoc,pg)){
+                if(FPDF_TEXTPAGE tp=FPDFText_LoadPage(page)){pageText[pg]=KwPageTextLower(tp);FPDFText_ClosePage(tp);}
+                FPDF_ClosePage(page);
+            }
+        }
+        return pageText[pg];
+    };
+    const size_t before=g_highlights.size();
     g_highlights.erase(std::remove_if(g_highlights.begin(),g_highlights.end(),
-        [](const HighlightItem& h){
-            for(auto& kh:g_keywordHighlights)
-                if(kh.pageIndex==h.pageIndex&&kh.charStart==h.charStart&&kh.charEnd==h.charEnd)return true;
-            return false;}),g_highlights.end());
-    g_keywordHighlights.clear();
+        [&](const HighlightItem& h){
+            if(h.color!=entry.color||h.pageIndex<0||h.pageIndex>=g_pageCount)return false;
+            if(h.charEnd-h.charStart+1!=(int)lk.size())return false;
+            const std::wstring& s=textOf(h.pageIndex);
+            return h.charStart>=0&&h.charEnd<(int)s.size()&&s.compare(h.charStart,lk.size(),lk)==0;
+        }),g_highlights.end());
+    if(g_highlights.size()!=before)g_dirty=true;
+}
+
+// 목록의 모든 키워드를 현재 문서에 칠함
+void ApplyKeywordHighlights(HWND hWnd){
+    if(!g_pdfDoc)return;
+    for(const auto& entry:g_keywordList)ApplyKeywordToDoc(entry);
+    InvalidateRect(hWnd,nullptr,TRUE);
+}
+
+// 목록의 모든 키워드로 만든 하이라이트를 현재 문서에서 지움
+void RemoveKeywordHighlights(){
+    for(const auto& entry:g_keywordList)RemoveKeywordFromDoc(entry);
+}
+
+static void KwAddFromEdit(HWND hWnd){
+    wchar_t buf[256]={};GetWindowTextW(g_kwEditBox,buf,256);
+    std::wstring kw(buf);
+    while(!kw.empty()&&iswspace(kw.front()))kw.erase(kw.begin());
+    while(!kw.empty()&&iswspace(kw.back()))kw.pop_back();
+    if(!kw.empty()){
+        int sel=(int)SendMessageW(g_kwCombo,CB_GETCURSEL,0,0);if(sel<0)sel=0;
+        bool dup=false;
+        for(auto& e:g_keywordList)if(_wcsicmp(e.keyword.c_str(),kw.c_str())==0){dup=true;break;}
+        if(!dup){
+            KeywordEntry entry{kw,kColors[sel]};
+            g_keywordList.push_back(entry);RefreshList();SetWindowTextW(g_kwEditBox,L"");
+            HCURSOR oldCur=SetCursor(LoadCursor(nullptr,IDC_WAIT));   // 큰 문서는 잠깐 걸릴 수 있음
+            ApplyKeywordToDoc(entry);
+            SetCursor(oldCur);
+            InvalidateRect(GetParent(hWnd),nullptr,TRUE);
+        }
+    }
+    SetFocus(g_kwEditBox);
+    InvalidateBtns(hWnd);
+}
+
+static void KwDeleteSelected(HWND hWnd){
+    int sel=g_kwList?(int)SendMessageW(g_kwList,LB_GETCURSEL,0,0):-1;
+    if(sel>=0&&sel<(int)g_keywordList.size()){
+        const KeywordEntry entry=g_keywordList[sel];
+        g_keywordList.erase(g_keywordList.begin()+sel);RefreshList();
+        RemoveKeywordFromDoc(entry);
+        InvalidateRect(GetParent(hWnd),nullptr,TRUE);
+    }
+    InvalidateBtns(hWnd);
+}
+
+// 입력 상자: Enter = 추가, Esc = 닫기
+static LRESULT CALLBACK KwEditProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam){
+    if(msg==WM_KEYDOWN){
+        if(wParam==VK_RETURN){KwAddFromEdit(GetParent(hWnd));return 0;}
+        if(wParam==VK_ESCAPE){PostMessageW(GetParent(hWnd),WM_CLOSE,0,0);return 0;}
+    }
+    if(msg==WM_CHAR&&(wParam==VK_RETURN||wParam==VK_ESCAPE))return 0;   // 경고음 방지
+    return CallWindowProcW(g_kwOrigEditProc,hWnd,msg,wParam,lParam);
 }
 
 void ShowKeywordDialog(HWND hParent){
@@ -349,10 +436,10 @@ void ShowKeywordDialog(HWND hParent){
     MARGINS margins = {1,1,1,1};
     DwmExtendFrameIntoClientArea(g_kwWnd, &margins);
     // 폰트 먼저 생성
-    HFONT hFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFont = g_kwFont = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    HFONT hFontList = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFontList = g_kwFontList = CreateFontW(21, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 
@@ -379,6 +466,9 @@ void ShowKeywordDialog(HWND hParent){
     SendMessageW(g_kwEditBox, WM_SETFONT, (WPARAM)hFont,     TRUE);
     SendMessageW(g_kwCombo,   WM_SETFONT, (WPARAM)hFont,     TRUE);
     SendMessageW(g_kwList,    WM_SETFONT, (WPARAM)hFontList, TRUE);
-    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h)
-    PopupAnim::Show(g_kwWnd, SW_SHOWNOACTIVATE);
+    g_kwOrigEditProc=(WNDPROC)SetWindowLongPtrW(g_kwEditBox,GWLP_WNDPROC,(LONG_PTR)KwEditProc);
+    // 아래에서 살짝 떠오르며 나타남 (PopupAnim.h). 바로 입력할 수 있게 활성화 + 입력 상자 포커스
+    PopupAnim::Show(g_kwWnd, SW_SHOW);
+    SetForegroundWindow(g_kwWnd);
+    SetFocus(g_kwEditBox);
 }
